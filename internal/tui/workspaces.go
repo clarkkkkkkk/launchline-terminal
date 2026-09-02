@@ -47,26 +47,21 @@ func (m *Model) updateWorkspaces(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) viewWorkspaces() (string, string, string) {
 	items := sortedWorkspaces(m.cfg.Workspaces)
 	if len(items) == 0 {
-		return "Workspaces", "No workspaces yet.\n\nCreate a workspace and group the applications you normally open together.\n\n" + m.theme.Accent.Render("[C] Create Workspace"), "C Create   Esc Back   ? Help   Q Quit"
+		body := m.description("Create and manage the groups of applications you launch together.") + "\n\n" + m.theme.Title.Render("No workspace configured.") + "\n" + m.description("Create your first workspace and group the applications you normally start together.") + "\n\n" + m.theme.Accent.Render(">") + " Create Workspace"
+		return "Workspace Management", body, "C Create   Esc Back   ? Help   Q Quit"
 	}
 	start, end := visibleRange(len(items), m.cursor, m.height)
 	var body strings.Builder
+	body.WriteString(m.description("Create and manage the groups of applications you launch together.") + "\n\n")
 	for i := start; i < end; i++ {
-		marker := "  "
-		if i == m.cursor {
-			marker = "● "
-		}
 		defaultMark := ""
 		if items[i].ID == m.cfg.DefaultWorkspaceID {
-			defaultMark = "  " + m.theme.Success.Render("✓ default")
+			defaultMark = "  " + m.theme.Success.Render("✓ Default")
 		}
-		line := fmt.Sprintf("%s%s  %s", marker, items[i].Name, m.theme.Muted.Render(fmt.Sprintf("%d apps", len(items[i].Applications)))) + defaultMark
-		if i == m.cursor {
-			line = m.theme.Accent.Render(marker+items[i].Name) + "  " + m.theme.Muted.Render(fmt.Sprintf("%d apps", len(items[i].Applications))) + defaultMark
-		}
+		line := m.menuItem(i, items[i].Name, true) + "  " + m.theme.Muted.Render(fmt.Sprintf("%d apps", len(items[i].Applications))) + defaultMark
 		body.WriteString(line + "\n")
 	}
-	return "Workspaces", body.String(), "↑↓ Navigate   C Create   E/Enter Edit   F Make Default   D Delete   Esc Back"
+	return "Workspace Management", body.String(), "↑↓ Move   C Create   E/Enter Edit   F Default   D Delete   Esc Back"
 }
 
 func (m *Model) openWorkspaceForm(item *app.Workspace) {
@@ -74,7 +69,10 @@ func (m *Model) openWorkspaceForm(item *app.Workspace) {
 	name.Prompt = ""
 	name.Placeholder = "Workspace name"
 	name.CharLimit = 200
-	name.Width = max(20, min(70, m.width-8))
+	name.Width = max(12, min(70, m.contentWidth()-2))
+	name.Cursor.Style = m.theme.Accent
+	name.TextStyle = m.theme.Command
+	name.PlaceholderStyle = m.theme.Muted
 	selected := map[string]bool{}
 	id := ""
 	if item != nil {
@@ -156,19 +154,19 @@ func (m *Model) updateWorkspaceForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) viewWorkspaceForm() (string, string, string) {
-	title := "Create Workspace"
-	if m.wsForm.id != "" {
-		title = "Edit Workspace"
+	title := "Workspace Editor — New Workspace"
+	if strings.TrimSpace(m.wsForm.name.Value()) != "" {
+		title = "Workspace Editor — " + m.wsForm.name.Value()
 	}
 	if m.wsForm.stage == 0 {
-		return title, m.theme.Accent.Render("● Workspace name") + "\n" + m.wsForm.name.View() + "\n\n" + m.theme.Muted.Render("Next, choose the applications to include."), "Enter/Tab Choose Applications   Esc Cancel"
+		body := m.description("Name this workspace, then choose the applications it should launch.") + "\n\n" + m.theme.Accent.Render("● ") + m.theme.Focus.Render("Workspace name") + "\n" + m.wsForm.name.View()
+		return title, body, "Enter/Tab Choose Applications   Esc Cancel"
 	}
 	items := sortedApplications(m.cfg.Applications)
 	var body strings.Builder
-	body.WriteString(m.theme.Muted.Render("Workspace") + "\n" + m.wsForm.name.Value() + "\n\n")
-	body.WriteString("Choose applications:\n\n")
+	body.WriteString(m.description("Select the applications included in this workspace.") + "\n\n")
 	if len(items) == 0 {
-		body.WriteString("No applications are registered. You can save an empty workspace and add applications later.\n")
+		body.WriteString(m.theme.Title.Render("No applications configured.") + "\n" + m.description("You can save an empty workspace and add applications later.") + "\n")
 	} else {
 		start, end := visibleRange(len(items), m.wsForm.cursor, m.height)
 		for i := start; i < end; i++ {
@@ -177,13 +175,13 @@ func (m *Model) viewWorkspaceForm() (string, string, string) {
 				check = "[✓]"
 			}
 			prefix := "  "
+			label := check + " " + items[i].Name
 			if i == m.wsForm.cursor {
-				prefix = "● "
-				body.WriteString(m.theme.Accent.Render(prefix+check+" "+items[i].Name) + "\n")
-			} else {
-				body.WriteString(prefix + check + " " + items[i].Name + "\n")
+				prefix = m.theme.Accent.Render("● ")
+				label = m.theme.Focus.Render(label)
 			}
+			body.WriteString(prefix + label + "\n")
 		}
 	}
-	return title, body.String(), "↑↓ Navigate   Space Toggle   Enter Save   ← Name   Esc Cancel"
+	return title, body.String(), "↑↓ Move   Space Toggle   Enter Save   ← Name   Esc Cancel"
 }

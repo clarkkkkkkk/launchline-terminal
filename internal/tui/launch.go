@@ -42,27 +42,21 @@ func (m *Model) updateLaunchSelect(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) viewLaunchSelect() (string, string, string) {
 	items := sortedWorkspaces(m.cfg.Workspaces)
 	if len(items) == 0 {
-		return "Start Workspace", "No workspaces yet.\n\nCreate a workspace and group the applications you normally open together.\n\n" + m.theme.Accent.Render("Go to Workspaces → Create Workspace"), "Esc Back   ? Help   Q Quit"
+		body := m.description("Select one workspace to launch.") + "\n\n" + m.theme.Title.Render("No workspace configured.") + "\n" + m.description("Create your first workspace and group the applications you normally start together.") + "\n\n" + m.theme.Accent.Render(">") + " Create Workspace"
+		return "Workspace Selection — Choose Workspace", body, "Esc Back   ? Help   Q Quit"
 	}
 	var body strings.Builder
-	body.WriteString("Choose a workspace to start:\n\n")
+	body.WriteString(m.description("Select one workspace to launch:") + "\n\n")
 	start, end := visibleRange(len(items), m.cursor, m.height)
 	for i := start; i < end; i++ {
-		marker := "  "
-		if i == m.cursor {
-			marker = "● "
-		}
 		defaultMark := ""
 		if items[i].ID == m.cfg.DefaultWorkspaceID {
-			defaultMark = "  " + m.theme.Success.Render("✓ default")
+			defaultMark = "  " + m.theme.Success.Render("✓ Default")
 		}
-		line := marker + items[i].Name + "  " + m.theme.Muted.Render(fmt.Sprintf("%d apps", len(items[i].Applications))) + defaultMark
-		if i == m.cursor {
-			line = m.theme.Accent.Render(marker+items[i].Name) + "  " + m.theme.Muted.Render(fmt.Sprintf("%d apps", len(items[i].Applications))) + defaultMark
-		}
+		line := m.menuItem(i, items[i].Name, true) + "  " + m.theme.Muted.Render(fmt.Sprintf("%d apps", len(items[i].Applications))) + defaultMark
 		body.WriteString(line + "\n")
 	}
-	return "Start Workspace", body.String(), "↑↓ Navigate   Enter Start   Esc Back"
+	return "Workspace Selection — Choose Workspace", body.String(), "↑↓ Move   Enter Launch   Esc Back"
 }
 
 func (m *Model) beginLaunch(reference string) tea.Cmd {
@@ -132,16 +126,17 @@ func (m *Model) updateLaunching(message tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) viewLaunching() (string, string, string) {
 	name := m.launch.workspace.Name
 	if name == "" {
-		name = "workspace"
+		name = "Workspace"
 	}
 	var body strings.Builder
+	body.WriteString(m.description("Starting each configured application independently.") + "\n\n")
 	if len(m.launch.apps) == 0 && !m.launch.done {
-		body.WriteString(m.spinner.View() + " Resolving applications…")
+		body.WriteString(m.spinner.View() + " Resolving applications…\n")
 	}
 	for _, item := range m.launch.apps {
 		result, complete := m.launch.results[item.ID]
 		if !complete {
-			body.WriteString(m.theme.Muted.Render("· "+item.Name) + "\n")
+			body.WriteString(m.spinner.View() + " " + item.Name + "\n")
 			continue
 		}
 		if result.Err != nil {
@@ -160,14 +155,15 @@ func (m *Model) viewLaunching() (string, string, string) {
 				failed++
 			}
 		}
-		body.WriteString("\n" + fmt.Sprintf("%d applications launched.", succeeded))
+		body.WriteString("\n" + m.theme.Title.Render("Workspace launched.") + "\n\n")
+		body.WriteString(fmt.Sprintf("%d applications launched successfully.", succeeded))
 		if failed > 0 {
 			body.WriteString("\n" + m.theme.Error.Render(fmt.Sprintf("%d applications failed.", failed)))
 		}
 		if len(m.launch.apps) == 0 && m.errMessage == "" {
 			body.WriteString("\n" + m.theme.Warning.Render("This workspace has no applications yet."))
 		}
-		return "Starting " + name, body.String(), "Enter/Esc Dashboard   Q Quit"
+		return "Launch Workspace — " + name, body.String(), "Enter/Esc Workspace   Q Quit"
 	}
-	return "Starting " + name, body.String(), m.spinner.View() + " Launching   Esc Cancel   Q Quit"
+	return "Launch Workspace — " + name, body.String(), "Launching   Esc Cancel   Q Quit"
 }

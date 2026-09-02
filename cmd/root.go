@@ -26,7 +26,9 @@ func defaultDependencies() (Dependencies, error) {
 	}
 	service := app.NewService(repository)
 	launch := app.NewLaunchService(service, platformlauncher.New())
-	return Dependencies{Config: service, Launch: launch, RunTUI: tui.Run}, nil
+	return Dependencies{Config: service, Launch: launch, RunTUI: func(config *app.Service, launcher *app.LaunchService) error {
+		return tui.Run(config, launcher, Version)
+	}}, nil
 }
 
 func NewRootCommand(deps Dependencies, stdout, stderr io.Writer) *cobra.Command {

@@ -29,13 +29,29 @@ func (m *Model) viewSettings() (string, string, string) {
 	if m.cfg.CompactLogo {
 		value = "Always compact"
 	}
-	body := m.theme.Accent.Render("● Logo style") + "\n" + value + "\n\n" + m.theme.Muted.Render("The full logo is always replaced by compact branding on narrow terminals.") + "\n\n" + m.theme.Muted.Render("Default workspace") + "\n" + defaultWorkspaceName(m.cfg) + "\n\n" + m.theme.Muted.Render("Configuration") + "\n" + truncate(m.config.ConfigPath(), max(15, m.width-6))
-	return "Settings", body, "←→/Space Toggle Logo   Esc Back   ? Help   Q Quit"
+	if m.layoutMode() == narrowLayout {
+		body := m.theme.Accent.Render("● ") + m.theme.Focus.Render("Logo style") + "\n  " + value + "\n\n" + m.theme.Muted.Render("Default workspace") + "\n" + defaultWorkspaceName(m.cfg) + "\n\n" + m.theme.Muted.Render("Configuration") + "\n" + truncate(m.config.ConfigPath(), max(15, m.contentWidth()))
+		return "Launchline Settings", body, "←→/Space Change   Esc Back   ? Help"
+	}
+	body := m.description("Adjust the small set of local presentation preferences.") + "\n\n" + m.theme.Accent.Render("● ") + m.theme.Focus.Render("Logo style") + "\n  " + value + "\n\n" + m.description("The block logo always collapses on narrow or short terminals.") + "\n\n" + m.theme.Muted.Render("Default workspace") + "\n" + defaultWorkspaceName(m.cfg) + "\n\n" + m.theme.Muted.Render("Configuration") + "\n" + truncate(m.config.ConfigPath(), max(15, m.contentWidth()))
+	return "Launchline Settings", body, "←→/Space Change   Esc Back   ? Help   Q Quit"
 }
 
 func (m *Model) viewHelp() string {
+	if m.layoutMode() == narrowLayout {
+		return strings.Join([]string{
+			m.description("Launchline is a local, keyboard-first workspace launcher."),
+			"",
+			"↑↓ Move · Enter Open/Save",
+			"←→ Change · Space Toggle",
+			"Esc Back · Q Quit · ? Help",
+			"",
+			"Apps  A Add · E Edit · D Delete",
+			"Workspaces  C Create · F Default",
+		}, "\n")
+	}
 	return strings.Join([]string{
-		"Launchline is a local, keyboard-first workspace launcher.",
+		m.description("Launchline is a local, keyboard-first workspace launcher."),
 		"",
 		"↑ / ↓       Navigate lists",
 		"← / →       Change options or return to a form field",
@@ -51,7 +67,7 @@ func (m *Model) viewHelp() string {
 		"Workspaces",
 		"C create · E edit · F make default · D delete",
 		"",
-		m.theme.Muted.Render("Paths and arguments are passed directly to the operating system. Launchline never evaluates them as shell code."),
+		m.description("Paths and arguments are passed directly to the operating system. Launchline never evaluates them as shell code."),
 	}, "\n")
 }
 
@@ -83,9 +99,9 @@ func (m *Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) viewConfirm() (string, string, string) {
 	if m.confirm.kind == "application" {
-		body := fmt.Sprintf("Delete application %q?\n\nThis removes only the Launchline application entry and its workspace references.\nIt does not uninstall, delete, or modify the actual program.", m.confirm.name)
-		return "Confirm removal", body, "Y Remove from Launchline   N Cancel"
+		body := m.description(fmt.Sprintf("Delete application %q?", m.confirm.name)) + "\n\nThis removes only the Launchline application entry and its workspace references.\n" + m.theme.Warning.Render("The installed program will not be changed.")
+		return "Confirm Removal — " + m.confirm.name, body, "Y Remove from Launchline   N Cancel"
 	}
-	body := fmt.Sprintf("Delete workspace %q?\n\nThis removes only the Launchline workspace configuration.\nIt does not uninstall or delete applications.", m.confirm.name)
-	return "Confirm deletion", body, "Y Delete Workspace   N Cancel"
+	body := m.description(fmt.Sprintf("Delete workspace %q?", m.confirm.name)) + "\n\nThis removes only the Launchline workspace configuration.\n" + m.theme.Warning.Render("Registered and installed applications will not be changed.")
+	return "Confirm Deletion — " + m.confirm.name, body, "Y Delete Workspace   N Cancel"
 }

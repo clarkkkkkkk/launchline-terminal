@@ -40,19 +40,36 @@ The CLI and TUI must call the same services. TUI code must not execute platform 
 
 Respect the terminal's existing background. Do not paint a full-screen background.
 
+Launchline should read as a professional interactive CLI session, not a settings dashboard or a website rendered in a terminal. Use a mostly monochrome white/gray identity with dense but readable vertical rhythm. Anchor content toward the upper-left, avoid decorative cards and borders, and use deliberate gaps instead of large unstructured empty areas.
+
 Use a restrained semantic palette:
 
-- primary: ordinary readable content
+- logo and contextual titles: bright foreground / white
+- primary: ordinary terminal foreground
 - muted: secondary text and guidance
-- accent: identity, focus, and current selection
+- accent: Launchline violet, reserved for the active selector, prompt marker, and rare focus cues
 - success: completed actions plus `✓`
 - warning: recoverable issues plus `!`
 - error: failures plus `×`
 - disabled: unavailable actions
 
-Color is supplementary. Always pair state with text, position, or symbols. Keep whitespace deliberate and hierarchy obvious. Prefer a single focus marker such as `●`; avoid ornamental boxes that consume narrow-terminal space.
+Violet is an accent, never the dominant interface color. Do not color the logo or every selectable row violet. Color is supplementary: always pair state with text, position, or symbols. Keep whitespace deliberate and hierarchy obvious. Prefer a violet `●` beside bright selected text; leave non-selected items in the normal foreground.
 
-Use large original Launchline ASCII branding only on the root dashboard and only when it fits. Fall back automatically to `LAUNCHLINE` on narrow terminals or when compact branding is enabled. Never crop or overflow artwork.
+Use the dominant bright block wordmark from `assets/ascii/launchline.txt` only on the root experience and only when it fits. Do not replace it with thin line-art lettering. Fall back automatically to plain `LAUNCHLINE` on narrow or short terminals, or when compact branding is enabled. Never crop, recolor violet, or overflow the canonical artwork.
+
+## CLI/session hierarchy
+
+Compose screens like an active command session:
+
+1. block brand on the root, or a compact uppercase context label elsewhere;
+2. a subtle command-context line such as `> launchline`, `> launchline apps`, or `> launchline workspace`;
+3. a strong contextual title such as `Application Management` or `Workspace Editor — Development`;
+4. one concise muted explanatory line;
+5. the interactive list, form, empty state, or launch progress;
+6. quiet screen-specific keyboard hints;
+7. an integrated bottom status line.
+
+Command context is presentation only. Never add a fake shell or parser. Avoid generic headings such as “Main Menu” when a contextual product title communicates more.
 
 ## Layout and responsive behavior
 
@@ -60,10 +77,24 @@ Use large original Launchline ASCII branding only on the root dashboard and only
 - Make lists scroll around the active item when vertical space is limited.
 - Truncate long paths and diagnostics visibly with an ellipsis; retain full values in editable fields.
 - Stack information instead of forcing fixed columns on narrow screens.
-- Keep the current action and essential footer controls visible on short screens.
+- Keep the current action, relevant key hints, and status line visible on short screens.
 - Test narrow, short, and large dimensions. Never assume an 80×24 or 90×28 terminal.
 
-The root hierarchy is: brand, tagline, main menu, current-workspace/application/platform facts, contextual controls. Main menu order is Start Workspace, Applications, Workspaces, Settings, Help.
+Support three modes:
+
+- wide: full block logo, complete command context, comfortably bounded content width, and full workspace/version/platform status;
+- normal: full logo only when both width and height permit, standard content, and compact full status;
+- narrow or short: plain `LAUNCHLINE`, tighter section spacing, stacked or shortened copy, compact hints, and no horizontal overflow.
+
+The root hierarchy is: dominant brand, `Tips to get started: /help`, `> launchline`, `Workspace`, a short instruction, numbered main selection, quiet controls, and status. Main selection order is Start Workspace, Applications, Workspaces, Settings, Help.
+
+Keep the content column bounded on wide terminals. The interface stays upper-left rather than centering vertically. The status line may sit at the terminal bottom, but do not fill the main area with panels merely to occupy space.
+
+## Command context and bottom status
+
+Show the real conceptual command for the current surface: `launchline apps`, `launchline workspace`, `launchline start`, `launchline config`, or `launchline help`. Style the `>` prompt with the restrained accent and keep command text bright or neutral.
+
+Every screen ends with a terminal-like status line. Its left side shows `~` plus the active/default workspace or current workspace context. Its right side shows the Launchline build version and platform when space permits. Collapse the platform first, then the right side, on narrow terminals. Do not render the status as a bordered web navigation bar.
 
 ## Interaction model
 
@@ -81,7 +112,7 @@ When a text input has focus, it owns normal character keys. Global shortcuts mus
 
 ## Lists, forms, and selection
 
-Lists need a visible focus marker, useful item metadata, scrolling, and a purposeful empty state. Applications show the selected path and arguments. Workspaces show application count and a textual default marker.
+Lists need a visible focus marker, useful item metadata, scrolling, and a purposeful empty state. Use numbered selection where it clarifies choice, such as `● 1. Development`, while application checkbox editors retain `[✓]` and `[ ]`. Only the active marker uses violet; selected text may be bold bright. Applications show the selected path and arguments. Workspaces show application count and a textual default marker.
 
 Forms must:
 
@@ -128,7 +159,7 @@ Use affirmative and cancel labels such as `Y Remove from Launchline / N Cancel`,
 
 ## Reusable components and accessibility
 
-Centralize theme semantics, framing, list navigation, visible-range calculation, truncation, forms, status rendering, and confirmation patterns when reuse makes behavior more consistent. Keep screen-specific decisions near their screen.
+Centralize theme semantics, block brand rendering, command context, contextual headers, framing, list navigation, visible-range calculation, truncation, key hints, status rendering, launch status, empty states, and confirmation patterns when reuse makes behavior more consistent. Keep screen-specific decisions near their screen.
 
 - Never rely on color alone.
 - Keep terminology and shortcut placement consistent.
@@ -141,7 +172,7 @@ Centralize theme semantics, framing, list navigation, visible-range calculation,
 
 Before completing a user-facing change, verify Windows, Linux, and macOS behavior compiles and remains behind the launcher abstraction. Use direct execution for executable targets, macOS `open` for bundles/URLs as appropriate, and Linux `xdg-open` for desktop/URL targets without making it the only launch path. Keep arguments structured and paths with spaces intact.
 
-Check CLI/TUI behavior against one another, review narrow-terminal output, confirm empty/error/destructive states, and ensure documentation claims only implemented behavior.
+Check CLI/TUI behavior against one another; inspect wide, normal, narrow, and short terminal output; confirm the canonical logo collapses rather than overflows; confirm violet remains an accent; verify empty/error/destructive states; and ensure documentation claims only implemented behavior.
 
 Configure once.
 Launch everything with one command.

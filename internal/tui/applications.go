@@ -37,28 +37,22 @@ func (m *Model) updateApplications(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) viewApplications() (string, string, string) {
 	items := sortedApplications(m.cfg.Applications)
 	if len(items) == 0 {
-		return "Applications", "No applications yet.\n\nAdd the applications you regularly use, then include them in a workspace.\n\n" + m.theme.Accent.Render("[A] Add Application"), "A Add   Esc Back   ? Help   Q Quit"
+		body := m.description("Manage the applications available to your workspaces.") + "\n\n" + m.theme.Title.Render("No applications configured.") + "\n" + m.description("Add the applications you regularly use, then include them in a workspace.") + "\n\n" + m.theme.Accent.Render(">") + " Add Application"
+		return "Application Management", body, "A Add   Esc Back   ? Help   Q Quit"
 	}
 	start, end := visibleRange(len(items), m.cursor, m.height)
 	var body strings.Builder
+	body.WriteString(m.description("Manage the applications available to your workspaces.") + "\n\n")
 	for i := start; i < end; i++ {
-		marker := "  "
-		line := items[i].Name
-		if i == m.cursor {
-			marker = "● "
-			line = m.theme.Accent.Render(marker + line)
-		} else {
-			line = marker + line
-		}
-		body.WriteString(line + "\n")
+		body.WriteString(m.menuItem(i, items[i].Name, true) + "\n")
 	}
 	selected := items[m.cursor]
-	body.WriteString("\n" + m.theme.Muted.Render(fmt.Sprintf("%d applications configured.", len(items))) + "\n\n")
-	body.WriteString("Path\n" + truncate(selected.Path, max(12, m.width-8)))
+	body.WriteString("\n" + m.theme.Muted.Render(fmt.Sprintf("%d configured", len(items))) + "\n")
+	body.WriteString(m.theme.Muted.Render("Path") + "  " + truncate(selected.Path, max(12, m.contentWidth()-6)))
 	if len(selected.Arguments) > 0 {
-		body.WriteString("\nArguments\n" + truncate(app.FormatArguments(selected.Arguments), max(12, m.width-8)))
+		body.WriteString("\n" + m.theme.Muted.Render("Args") + "  " + truncate(app.FormatArguments(selected.Arguments), max(12, m.contentWidth()-6)))
 	}
-	return "Applications", body.String(), "↑↓ Navigate   A Add   E/Enter Edit   D Delete   Esc Back"
+	return "Application Management", body.String(), "↑↓ Move   A Add   E/Enter Edit   D Delete   Esc Back"
 }
 
 func (m *Model) openApplicationForm(item *app.Application) {
@@ -69,7 +63,10 @@ func (m *Model) openApplicationForm(item *app.Application) {
 		field.Prompt = ""
 		field.Placeholder = label
 		field.CharLimit = 2048
-		field.Width = max(20, min(70, m.width-8))
+		field.Width = max(12, min(70, m.contentWidth()-2))
+		field.Cursor.Style = m.theme.Accent
+		field.TextStyle = m.theme.Command
+		field.PlaceholderStyle = m.theme.Muted
 		fields[i] = field
 	}
 	id := ""
@@ -133,18 +130,23 @@ func (m *Model) updateApplicationForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) viewApplicationForm() (string, string, string) {
-	title := "Add Application"
+	title := "Application Editor — New Application"
+	description := "Register an application for use in your workspaces."
 	if m.appForm.id != "" {
-		title = "Edit Application"
+		title = "Application Editor — " + m.appForm.fields[0].Value()
+		description = "Update this application without changing its workspace identity."
 	}
 	labels := []string{"Name", "Executable / application path", "Arguments (optional; quotes supported, no shell evaluation)"}
 	var body strings.Builder
+	body.WriteString(m.description(description) + "\n\n")
 	for i, field := range m.appForm.fields {
 		label := labels[i]
 		if i == m.appForm.focus {
-			label = m.theme.Accent.Render("● " + label)
+			label = m.theme.Accent.Render("● ") + m.theme.Focus.Render(label)
+		} else {
+			label = "  " + label
 		}
 		body.WriteString(label + "\n" + field.View() + "\n\n")
 	}
-	return title, strings.TrimSpace(body.String()), "Tab/↑↓ Next field   Enter Continue/Save   Esc Cancel"
+	return title, strings.TrimSpace(body.String()), "Tab/↑↓ Next Field   Enter Continue/Save   Esc Cancel"
 }

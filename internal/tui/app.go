@@ -11,8 +11,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	launchassets "github.com/launchline/launchline/assets"
 	"github.com/launchline/launchline/internal/app"
-	"github.com/launchline/launchline/internal/platform"
 	"github.com/launchline/launchline/internal/tui/styles"
 )
 
@@ -69,6 +70,7 @@ type Model struct {
 	cursor     int
 	width      int
 	height     int
+	version    string
 	errMessage string
 	notice     string
 	appForm    applicationForm
@@ -81,6 +83,10 @@ type Model struct {
 }
 
 func New(config *app.Service, launcher *app.LaunchService) (*Model, error) {
+	return newModel(config, launcher, "dev")
+}
+
+func newModel(config *app.Service, launcher *app.LaunchService, version string) (*Model, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -88,11 +94,11 @@ func New(config *app.Service, launcher *app.LaunchService) (*Model, error) {
 	spin := spinner.New()
 	spin.Spinner = spinner.MiniDot
 	spin.Style = styles.New().Accent
-	return &Model{config: config, launcher: launcher, cfg: cfg, width: 80, height: 24, theme: styles.New(), spinner: spin}, nil
+	return &Model{config: config, launcher: launcher, cfg: cfg, width: 80, height: 24, version: version, theme: styles.New(), spinner: spin}, nil
 }
 
-func Run(config *app.Service, launcher *app.LaunchService) error {
-	model, err := New(config, launcher)
+func Run(config *app.Service, launcher *app.LaunchService, version string) error {
+	model, err := newModel(config, launcher, version)
 	if err != nil {
 		return err
 	}
@@ -189,7 +195,7 @@ func (m *Model) View() string {
 	case settingsScreen:
 		title, body, footer = m.viewSettings()
 	case helpScreen:
-		title, body, footer = "Help", m.viewHelp(), "Esc Back"
+		title, body, footer = "Keyboard & Commands", m.viewHelp(), "Enter/Esc Back"
 	case confirmScreen:
 		title, body, footer = m.viewConfirm()
 	}
@@ -197,39 +203,230 @@ func (m *Model) View() string {
 }
 
 func (m *Model) frame(title, body, footer string) string {
-	available := m.width - 4
-	if available < 24 {
-		available = max(10, m.width)
+	if m.width < 28 || m.height < 14 {
+		return m.smallTerminalView()
 	}
+	contentWidth, leftPadding := m.contentWidth(), m.leftPadding()
+	sections := make([]string, 0, 8)
+	if m.screen == dashboardScreen {
+		sections = append(sections, m.brandHeader(contentWidth))
+	} else if label := m.screenLabel(); label != "" {
+		sections = append(sections, m.theme.Eyebrow.Render(label))
+	}
+	sections = append(sections, m.commandContext())
 	if title != "" {
-		title = m.theme.Title.Render(title) + "\n\n"
+		sections = append(sections, m.theme.Title.Render(title))
 	}
-	messages := ""
+	if body != "" {
+		sections = append(sections, body)
+	}
+
+	messages := make([]string, 0, 2)
 	if m.errMessage != "" {
-		messages += "\n\n" + m.theme.Error.Render("× "+truncate(m.errMessage, available))
+		messages = append(messages, m.theme.Error.Render("× "+truncate(m.errMessage, contentWidth)))
 	}
 	if m.notice != "" {
-		messages += "\n\n" + m.theme.Success.Render("✓ "+truncate(m.notice, available))
+		messages = append(messages, m.theme.Success.Render("✓ "+truncate(m.notice, contentWidth)))
 	}
-	content := title + body + messages
+	sections = append(sections, messages...)
 	if footer != "" {
-		content += "\n\n" + m.theme.Footer.Render(truncate(footer, available))
+		sections = append(sections, m.theme.Hints.Render(truncate(footer, contentWidth)))
 	}
-	return lipgloss.NewStyle().Padding(1, 2).MaxWidth(max(1, m.width)).Render(content)
+	separator := "\n\n"
+	if m.layoutMode() == narrowLayout {
+		separator = "\n"
+	}
+	upper := strings.Join(sections, separator)
+	upper = ansi.Hardwrap(upper, contentWidth, true)
+	status := m.statusLine(contentWidth)
+	gap := 1
+	if remaining := m.height - lipgloss.Height(upper) - 2; remaining > gap {
+		gap = remaining
+	}
+	content := upper + strings.Repeat("\n", gap) + status
+	return lipgloss.NewStyle().PaddingLeft(leftPadding).MaxWidth(max(1, m.width)).Render(content)
+}
+
+func (m *Model) smallTerminalView() string {
+	leftPadding := 1
+	width := max(4, m.width-leftPadding)
+	lines := []string{
+		m.theme.Logo.Render(truncate("LAUNCHLINE", width)),
+		truncate(m.commandContext(), width),
+		"",
+		m.theme.Warning.Render(truncate("Terminal too small.", width)),
+		m.theme.Muted.Render(truncate("Resize to continue.", width)),
+	}
+	upper := strings.Join(lines, "\n")
+	status := m.statusLine(width)
+	gap := max(1, m.height-lipgloss.Height(upper)-1)
+	content := upper + strings.Repeat("\n", gap) + status
+	return lipgloss.NewStyle().PaddingLeft(leftPadding).MaxWidth(max(1, m.width)).Render(content)
 }
 
 func truncate(value string, width int) string {
 	if width < 1 {
 		return ""
 	}
-	runes := []rune(value)
-	if len(runes) <= width {
+	if lipgloss.Width(value) <= width {
 		return value
 	}
-	if width <= 1 {
-		return string(runes[:width])
+	return ansi.Truncate(value, width, "…")
+}
+
+type layoutMode int
+
+const (
+	narrowLayout layoutMode = iota
+	normalLayout
+	wideLayout
+)
+
+func (m *Model) layoutMode() layoutMode {
+	if m.width >= 110 && m.height >= 28 {
+		return wideLayout
 	}
-	return string(runes[:width-1]) + "…"
+	if m.width >= 84 && m.height >= 25 {
+		return normalLayout
+	}
+	return narrowLayout
+}
+
+func (m *Model) contentWidth() int {
+	padding := m.leftPadding()
+	available := max(12, m.width-padding)
+	if m.layoutMode() == wideLayout {
+		return min(96, available)
+	}
+	return min(84, available)
+}
+
+func (m *Model) leftPadding() int {
+	if m.screen == dashboardScreen && m.shouldRenderFullLogo() {
+		return 0
+	}
+	if m.width < 48 {
+		return 1
+	}
+	return 2
+}
+
+func (m *Model) brandHeader(width int) string {
+	wordmark := "LAUNCHLINE"
+	if m.shouldRenderFullLogo() {
+		wordmark = launchassets.LaunchlineLogo()
+	}
+	return m.theme.Logo.Render(wordmark) + "\n\n" + m.theme.Muted.Render(truncate("Tips to get started: /help", width))
+}
+
+func (m *Model) shouldRenderFullLogo() bool {
+	if m.cfg.CompactLogo || m.screen != dashboardScreen || m.height < 20 {
+		return false
+	}
+	return m.width >= lipgloss.Width(launchassets.LaunchlineLogo())
+}
+
+func (m *Model) commandContext() string {
+	command := "launchline"
+	switch m.screen {
+	case applicationsScreen:
+		command = "launchline apps"
+	case applicationFormScreen:
+		if m.appForm.id == "" {
+			command = "launchline add"
+		} else {
+			command = "launchline apps edit"
+		}
+	case workspacesScreen:
+		command = "launchline workspace"
+	case workspaceFormScreen:
+		command = "launchline workspace edit"
+		if m.wsForm.id == "" {
+			command = "launchline workspace create"
+		}
+	case launchSelectScreen:
+		command = "launchline start"
+	case launchingScreen:
+		command = "launchline start"
+		if m.launch.workspace.Name != "" {
+			command += " " + m.launch.workspace.Name
+		}
+	case settingsScreen:
+		command = "launchline config"
+	case helpScreen:
+		command = "launchline help"
+	case confirmScreen:
+		if m.confirm.kind == "workspace" {
+			command = "launchline workspace delete"
+		} else {
+			command = "launchline apps delete"
+		}
+	}
+	return m.theme.Accent.Render(">") + " " + m.theme.Command.Render(command)
+}
+
+func (m *Model) screenLabel() string {
+	switch m.screen {
+	case applicationsScreen, applicationFormScreen:
+		return "APPLICATIONS"
+	case workspacesScreen, workspaceFormScreen:
+		return "WORKSPACES"
+	case launchSelectScreen, launchingScreen:
+		return "LAUNCH"
+	case settingsScreen:
+		return "SETTINGS"
+	case helpScreen:
+		return "HELP"
+	case confirmScreen:
+		return "CONFIRM"
+	default:
+		return ""
+	}
+}
+
+func (m *Model) statusLine(width int) string {
+	workspace := defaultWorkspaceName(m.cfg)
+	if workspace == "Not configured" {
+		workspace = "No workspace"
+	}
+	if m.screen == workspaceFormScreen && strings.TrimSpace(m.wsForm.name.Value()) != "" {
+		workspace = m.wsForm.name.Value()
+	}
+	if m.screen == launchingScreen && m.launch.workspace.Name != "" {
+		workspace = m.launch.workspace.Name
+	}
+	left := "~ " + workspace
+	right := "Launchline " + m.version
+	if m.layoutMode() != narrowLayout {
+		right += " · " + runtime.GOOS + "/" + runtime.GOARCH
+	}
+	if lipgloss.Width(left)+lipgloss.Width(right)+3 > width {
+		if width >= 34 {
+			left = truncate(left, width-lipgloss.Width(right)-2)
+		} else {
+			return m.theme.Status.Render(truncate(left, width))
+		}
+	}
+	space := max(2, width-lipgloss.Width(left)-lipgloss.Width(right))
+	return m.theme.Status.Render(left + strings.Repeat(" ", space) + right)
+}
+
+func (m *Model) description(value string) string {
+	return m.theme.Muted.Render(ansi.Wordwrap(value, m.contentWidth(), ""))
+}
+
+func (m *Model) menuItem(index int, label string, numbered bool) string {
+	prefix := "  "
+	if index == m.cursor {
+		prefix = m.theme.Accent.Render("● ")
+	}
+	if numbered {
+		label = fmt.Sprintf("%d. %s", index+1, label)
+	}
+	if index == m.cursor {
+		label = m.theme.Focus.Render(label)
+	}
+	return prefix + label
 }
 
 func visibleRange(total, cursor, height int) (int, int) {
@@ -277,8 +474,4 @@ func sortedWorkspaces(items []app.Workspace) []app.Workspace {
 	out := append([]app.Workspace(nil), items...)
 	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return out
-}
-
-func platformDetail() string {
-	return fmt.Sprintf("%s · %s/%s", platform.Name(), runtime.GOOS, runtime.GOARCH)
 }
