@@ -1,0 +1,15 @@
+# Build output
+/bin/
+/dist/
+/launchline
+/launchline.exe
+
+# Test and coverage output
+*.test
+coverage.out
+
+# Local configuration and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
