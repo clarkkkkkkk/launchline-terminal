@@ -2,7 +2,12 @@
 
 Thank you for improving Launchline. You need Go 1.24 or newer and a terminal on Windows, Linux, or macOS.
 
-## Setup and checks
+## Contribution workflow
+
+1. Fork the repository.
+2. Create a branch for one focused change.
+3. Make and test the change without crossing the architecture boundaries below.
+4. Run the required checks:
 
 ```console
 go mod download
@@ -12,7 +17,15 @@ go vet ./...
 go build ./...
 ```
 
-Keep generated binaries in `bin/` or `dist/`; both are ignored.
+5. Open a pull request that explains the change and how it was verified.
+
+Keep generated binaries in `bin/`, `build/`, or `dist/`; these directories are ignored.
+
+## Security and repository hygiene
+
+Never commit credentials, secrets, access tokens, private keys, personal environment files, or generated binaries. Use clearly fake placeholder values in tests and examples. Before opening a pull request, review the staged diff and confirm it contains no local configuration, machine-specific output, or private URLs.
+
+Report suspected vulnerabilities using the private process in [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Conventions
 
