@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -67,40 +68,77 @@ func sortChoices(items []applicationChoice) {
 
 func (m *Model) updateApplications(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	items := m.applicationChoices(m.search.Value())
-	switch key.String() {
+	if m.search.Focused() {
+		switch key.String() {
+		case "up":
+			m.search.Blur()
+			m.cursor = max(0, len(items)-1)
+			return m, nil
+		case "down":
+			m.search.Blur()
+			m.cursor = 0
+			return m, nil
+		case "enter":
+			if len(items) > 0 {
+				m.openApplicationDetails(items[m.cursor])
+			}
+			return m, nil
+		case "esc":
+			m.search.SetValue("")
+			m.search.Blur()
+			m.cursor = 0
+			return m, nil
+		}
+		var command tea.Cmd
+		previousQuery := m.search.Value()
+		m.search, command = m.search.Update(key)
+		items = m.applicationChoices(m.search.Value())
+		if m.search.Value() != previousQuery {
+			m.cursor = 0
+		} else if m.cursor >= len(items) {
+			m.cursor = max(0, len(items)-1)
+		}
+		return m, command
+	}
+
+	switch strings.ToLower(key.String()) {
 	case "up":
 		m.cursor = moveCursor(m.cursor, len(items), -1)
 		return m, nil
 	case "down":
 		m.cursor = moveCursor(m.cursor, len(items), 1)
 		return m, nil
-	case "ctrl+n":
+	case "/":
+		return m, m.search.Focus()
+	case "a":
 		m.openApplicationForm(nil)
 		return m, nil
-	case "ctrl+d":
+	case "d":
 		if len(items) > 0 && items[m.cursor].configured != nil {
 			item := items[m.cursor].configured
 			m.confirm = confirmState{kind: "application", id: item.ID, name: item.Name, returnTo: applicationsScreen}
 			m.screen = confirmScreen
+		} else if len(items) > 0 {
+			m.notice = "Discovered catalog entries cannot be deleted. They disappear when no longer installed."
 		}
 		return m, nil
 	case "enter":
-		if len(items) > 0 && items[m.cursor].configured != nil && items[m.cursor].configured.Manual() {
-			m.openApplicationForm(items[m.cursor].configured)
+		if len(items) > 0 {
+			m.openApplicationDetails(items[m.cursor])
 		}
 		return m, nil
-	case " ":
-		if len(items) > 0 && items[m.cursor].configured == nil && items[m.cursor].discovered != nil {
-			item := items[m.cursor].discovered
-			_, err := m.config.LinkDiscoveredApplication(app.Application{Name: item.Name, Path: item.Target, Arguments: item.Arguments, Kind: item.Kind, DiscoveryID: item.ID, Source: item.Source})
-			if err != nil {
-				m.errMessage = err.Error()
-			} else if err := m.refresh(); err != nil {
-				m.errMessage = err.Error()
-			} else {
-				m.notice = item.Name + " is ready for workspaces."
-			}
+	case "e":
+		if len(items) > 0 && items[m.cursor].configured != nil && items[m.cursor].configured.Manual() {
+			m.openApplicationForm(items[m.cursor].configured)
+		} else if len(items) > 0 {
+			m.openApplicationDetails(items[m.cursor])
+			m.notice = "Discovered applications are read-only. Use /add to register an editable manual target."
 		}
+		return m, nil
+	case " ", "space":
+		return m, nil
+	case "?":
+		m.returnTo, m.screen = applicationsScreen, helpScreen
 		return m, nil
 	case "esc":
 		if m.search.Value() != "" {
@@ -113,13 +151,7 @@ func (m *Model) updateApplications(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen, m.cursor = dashboardScreen, 0
 		return m, nil
 	}
-	var command tea.Cmd
-	m.search, command = m.search.Update(key)
-	items = m.applicationChoices(m.search.Value())
-	if m.cursor >= len(items) {
-		m.cursor = max(0, len(items)-1)
-	}
-	return m, command
+	return m, nil
 }
 
 func (m *Model) viewApplications() (string, string, string) {
@@ -127,28 +159,32 @@ func (m *Model) viewApplications() (string, string, string) {
 	var body strings.Builder
 	body.WriteString(m.description(fmt.Sprintf("Applications — %d discovered · %d linked/manual", len(m.catalog.Applications), len(m.cfg.Applications))) + "\n\n")
 	body.WriteString(m.theme.Muted.Render("Search applications") + "\n" + m.search.View() + "\n\n")
+	footer := "↑↓ Navigate   / Search   Enter Details   E Edit   D Delete   A Add   Esc Back"
+	if m.search.Focused() {
+		footer = "Type Search   ↑↓ Results   Enter Details   Esc Done"
+	}
 	if len(items) == 0 {
 		if len(m.catalog.Applications) == 0 && len(m.cfg.Applications) == 0 {
 			body.WriteString(m.theme.Title.Render("No applications found.") + "\n" + m.description("Use /refresh to scan this device, or /add to register a custom binary manually."))
 		} else {
 			body.WriteString(m.theme.Title.Render("No matching applications.") + "\n" + m.description("Clear the search to see the complete cached catalog."))
 		}
-		return "Application Catalog", body.String(), "Type to search   Esc Clear/Back   Ctrl+N Manual Add"
+		return "Application Catalog", body.String(), footer
 	}
 	start, end := visibleRangeRows(len(items), m.cursor, m.height-18)
 	for i := start; i < end; i++ {
-		check := "[ ]"
 		meta := "discovered"
 		if items[i].configured != nil {
-			check = "[✓]"
 			if items[i].configured.Manual() {
 				meta = "manual"
+			} else {
+				meta = "discovered · linked"
 			}
 		}
 		if items[i].unavailable {
-			check, meta = "[!]", "not currently available"
+			meta = "not currently available"
 		}
-		line := check + " " + items[i].name + "  " + m.theme.Muted.Render(meta)
+		line := items[i].name + "  " + m.theme.Muted.Render(meta)
 		prefix := "  "
 		if i == m.cursor {
 			prefix = m.theme.Accent.Render("● ")
@@ -166,7 +202,82 @@ func (m *Model) viewApplications() (string, string, string) {
 	if target != "" {
 		body.WriteString("\n" + m.theme.Muted.Render("Target") + "  " + truncate(target, max(12, m.contentWidth()-8)))
 	}
-	return "Application Catalog", body.String(), "Type Search   ↑↓ Move   Space Link   Enter Edit Manual   Ctrl+D Remove   Esc Back"
+	return "Application Catalog", body.String(), footer
+}
+
+func (m *Model) openApplicationDetails(item applicationChoice) {
+	m.appDetail = item
+	m.search.Blur()
+	m.screen = applicationDetailsScreen
+}
+
+func (m *Model) updateApplicationDetails(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch strings.ToLower(key.String()) {
+	case "e":
+		if m.appDetail.configured != nil && m.appDetail.configured.Manual() {
+			m.openApplicationForm(m.appDetail.configured)
+		}
+	case "esc":
+		m.screen = applicationsScreen
+	case "?":
+		m.returnTo, m.screen = applicationDetailsScreen, helpScreen
+	}
+	return m, nil
+}
+
+func (m *Model) viewApplicationDetails() (string, string, string) {
+	item := m.appDetail
+	target, kind, source, platformName, arguments := "", "executable", "Manual registration", runtime.GOOS, []string(nil)
+	status, registration := "Available", "Discovered"
+	editable := item.configured != nil && item.configured.Manual()
+	if item.discovered != nil {
+		target = item.discovered.Target
+		kind = item.discovered.Kind
+		source = item.discovered.Source
+		platformName = item.discovered.Platform
+		arguments = item.discovered.Arguments
+	}
+	if item.configured != nil {
+		if target == "" {
+			target = item.configured.Path
+			kind = item.configured.Kind
+			arguments = item.configured.Arguments
+			if item.configured.Source != "" {
+				source = item.configured.Source
+			}
+		}
+		if item.configured.Manual() {
+			registration = "Manual · editable"
+		} else {
+			registration = "Discovered · linked to Launchline"
+		}
+	}
+	if kind == "" {
+		kind = "executable"
+	}
+	if item.unavailable || (item.configured != nil && item.configured.Unavailable) {
+		status = "Not currently available"
+	}
+	args := app.FormatArguments(arguments)
+	if args == "" {
+		args = "None"
+	}
+	rows := []string{
+		m.theme.Muted.Render("Registration") + "  " + registration,
+		m.theme.Muted.Render("Status") + "        " + status,
+		m.theme.Muted.Render("Target") + "        " + truncate(target, max(12, m.contentWidth()-14)),
+		m.theme.Muted.Render("Arguments") + "     " + truncate(args, max(12, m.contentWidth()-14)),
+		m.theme.Muted.Render("Kind") + "          " + kind,
+		m.theme.Muted.Render("Source") + "        " + source,
+		m.theme.Muted.Render("Platform") + "      " + platformName,
+	}
+	footer := "Esc Back"
+	if editable {
+		footer = "E Edit   Esc Back"
+	} else {
+		rows = append(rows, "", m.description("This application is managed by local discovery and cannot be edited here. Use /add to register an editable manual target."))
+	}
+	return "Application Details — " + item.name, strings.Join(rows, "\n"), footer
 }
 
 func (m *Model) openApplicationForm(item *app.Application) {
@@ -200,7 +311,8 @@ func (m *Model) updateApplicationForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		m.screen, m.cursor = applicationsScreen, 0
-		return m, m.search.Focus()
+		m.search.Blur()
+		return m, nil
 	case "tab", "down":
 		form.fields[form.focus].Blur()
 		form.focus = moveCursor(form.focus, len(form.fields), 1)
@@ -236,7 +348,8 @@ func (m *Model) updateApplicationForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.screen, m.cursor = applicationsScreen, 0
 		m.notice = "Application saved."
-		return m, m.search.Focus()
+		m.search.Blur()
+		return m, nil
 	}
 	var command tea.Cmd
 	form.fields[form.focus], command = form.fields[form.focus].Update(key)

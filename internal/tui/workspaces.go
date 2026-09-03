@@ -138,14 +138,6 @@ func (m *Model) updateWorkspaceForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			id := items[form.cursor].key
 			form.selected[id] = !form.selected[id]
 		}
-	case "right":
-		if len(items) > 0 {
-			form.selected[items[form.cursor].key] = true
-		}
-	case "left":
-		if len(items) > 0 {
-			form.selected[items[form.cursor].key] = false
-		}
 	case "enter":
 		selected := make([]string, 0, len(form.selected))
 		for _, item := range m.applicationChoices("") {
@@ -228,7 +220,7 @@ func (m *Model) viewWorkspaceForm() (string, string, string) {
 			body.WriteString(prefix + label + "\n")
 		}
 	}
-	return title, body.String(), "↑↓ Move   ← Unselect   → Select   Space Toggle   Enter Save   Shift+Tab Name"
+	return title, body.String(), "↑↓ Navigate   Space Toggle   Enter Save   Esc Cancel"
 }
 
 func selectedApplicationCount(selected map[string]bool) int {

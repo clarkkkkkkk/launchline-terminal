@@ -55,13 +55,13 @@ Use a restrained semantic palette:
 
 Violet is an accent, never the dominant interface color. Do not color the logo or every selectable row violet. Color is supplementary: always pair state with text, position, or symbols. Keep whitespace deliberate and hierarchy obvious. Prefer a violet `●` beside bright selected text; leave non-selected items in the normal foreground.
 
-Use the dominant bright block wordmark from `assets/ascii/launchline.txt` only on the root experience and only when it fits. Do not replace it with thin line-art lettering. Fall back automatically to plain `LAUNCHLINE` on narrow or short terminals, or when compact branding is enabled. Never crop, recolor violet, or overflow the canonical artwork.
+Use the dominant bright block wordmark from `assets/ascii/launchline.txt` at the top of every screen when it fits. Do not replace the brand with a screen-specific eyebrow; the command context and title identify the active surface. Fall back automatically to plain `LAUNCHLINE` on narrow or short terminals, or when compact branding is enabled. Never crop, recolor violet, or overflow the canonical artwork.
 
 ## CLI/session hierarchy
 
 Compose screens like an active command session:
 
-1. block brand on the root, or a compact uppercase context label elsewhere;
+1. the block brand when it fits, or the compact `LAUNCHLINE` fallback;
 2. a subtle command-context line such as `> launchline`, `> launchline apps`, or `> launchline workspace`;
 3. a strong contextual title such as `Application Management` or `Workspace Editor — Development`;
 4. one concise muted explanatory line;
@@ -107,12 +107,17 @@ Apply these keys consistently:
 - Up/Down: navigate
 - Left/Right: change an option or move between form stages where useful
 - Enter: open, continue, confirm, or save
-- Space: toggle application membership
+- Space: only toggle checkbox or multi-selection state
+- E: edit the highlighted item when editing is available
+- D: delete the highlighted item through confirmation
+- A: add an item where the current surface supports creation
 - Esc: cancel or go back
 - Q: quit from non-input contexts
 - `?`: contextual help
 
 When a text input has focus, it owns normal character keys. Global shortcuts must not prevent users from typing names, paths, or arguments. Always show the most relevant controls in a restrained footer.
+
+Shortcuts must describe the current context only. Do not show irrelevant actions. On normal lists, Enter opens details and Space does nothing; editing is explicitly triggered with E. On checkbox or multi-selection surfaces, Space toggles the focused row and Enter confirms or saves. Users must never need to guess the difference between Space and Enter.
 
 ## Lists, forms, and selection
 
@@ -130,7 +135,7 @@ Workspace editing has a human-readable name stage and a checkable application li
 
 Application discovery is the default registration experience. Application lists search the already-normalized cache on each keystroke and distinguish discovered, manually registered, and unavailable selections with text or symbols as well as color. A refresh runs through Bubble Tea commands/messages, keeps the UI responsive, and reports new, unchanged, warning, and missing results without discarding cached entries after partial source failure. Manual executable registration remains available for custom and non-standard installations.
 
-The prompt and application-search inputs must shrink with the content column and never overflow narrow terminals. Ordinary character keys belong to the focused input. Completion suggestions are quiet and secondary; they must not visually compete with the wordmark, workspace state, or active focus marker.
+The prompt and application-search inputs must shrink with the content column and never overflow narrow terminals. Ordinary character keys belong to the focused input. In application search, Up/Down hands focus to the filtered results and Enter opens the highlighted result; an exact result can also be opened directly with Enter. Completion suggestions are quiet and secondary; they must not visually compete with the wordmark, workspace state, or active focus marker.
 
 ## Launch progress
 

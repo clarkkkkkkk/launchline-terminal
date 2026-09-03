@@ -120,7 +120,8 @@ func (m *Model) executePrompt() (tea.Model, tea.Cmd) {
 	case launchcommand.ActionApplications:
 		m.screen, m.cursor = applicationsScreen, 0
 		m.search.SetValue("")
-		return m, m.search.Focus()
+		m.search.Blur()
+		return m, nil
 	case launchcommand.ActionWorkspaces:
 		m.screen, m.cursor = workspacesScreen, 0
 	case launchcommand.ActionWorkspace:

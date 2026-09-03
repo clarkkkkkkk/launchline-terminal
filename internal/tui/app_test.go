@@ -139,23 +139,187 @@ func TestExistingWorkspaceOpensOnApplicationSelectionAndTogglesMembership(t *tes
 	if model.wsForm.selected["alpha"] {
 		t.Fatal("Space did not unselect the focused application")
 	}
-	model.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if !model.wsForm.selected["alpha"] {
-		t.Fatal("Right did not select the focused application")
-	}
 	model.Update(tea.KeyMsg{Type: tea.KeyDown})
-	model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	if !model.wsForm.selected["beta"] {
-		t.Fatal("Right did not select the second application")
+		t.Fatal("Space did not select the second application")
 	}
-	model.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	if model.wsForm.selected["beta"] {
-		t.Fatal("Left did not unselect the focused application")
-	}
+	model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if got := repo.cfg.Workspaces[0].Applications; !reflect.DeepEqual(got, []string{"alpha", "beta"}) {
 		t.Fatalf("saved membership=%#v", got)
+	}
+}
+
+func applicationUXModel(t *testing.T) (*Model, *tuiRepo) {
+	t.Helper()
+	cfg := app.DefaultConfig()
+	cfg.Applications = []app.Application{{ID: "manual", Name: "Alpha", Path: "/alpha", Arguments: []string{"--new"}}}
+	repo := &tuiRepo{cfg: cfg}
+	service := app.NewService(repo)
+	model, err := New(service, app.NewLaunchService(service, noLaunch{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.catalog.Applications = discovery.Normalize([]discovery.Application{{Name: "Cursor", Target: "/usr/bin/cursor", Kind: discovery.KindExecutable, Source: "xdg-desktop", Platform: "linux"}})
+	model.screen = applicationsScreen
+	model.search.Blur()
+	return model, repo
+}
+
+func TestApplicationsKeyboardActionsAreContextual(t *testing.T) {
+	model, repo := applicationUXModel(t)
+	_, _, footer := model.viewApplications()
+	const wantFooter = "↑↓ Navigate   / Search   Enter Details   E Edit   D Delete   A Add   Esc Back"
+	if footer != wantFooter {
+		t.Fatalf("applications footer=%q", footer)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	if model.screen != applicationsScreen || len(repo.cfg.Applications) != 1 {
+		t.Fatal("Space performed an action on the normal Applications screen")
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if model.screen != applicationDetailsScreen || model.appDetail.name != "Alpha" {
+		t.Fatalf("Enter did not open details: screen=%d detail=%q", model.screen, model.appDetail.name)
+	}
+	_, body, footer := model.viewApplicationDetails()
+	if footer != "E Edit   Esc Back" || !strings.Contains(body, "Manual · editable") || !strings.Contains(body, "/alpha") {
+		t.Fatalf("manual details missing metadata or controls: footer=%q body=%q", footer, body)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if model.screen != applicationFormScreen || model.appForm.id != "manual" {
+		t.Fatal("E did not open manual application editing")
+	}
+
+	model, _ = applicationUXModel(t)
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if model.screen != confirmScreen || model.confirm.id != "manual" {
+		t.Fatal("D did not open deletion confirmation")
+	}
+
+	model, _ = applicationUXModel(t)
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if model.screen != applicationFormScreen || model.appForm.id != "" {
+		t.Fatal("A did not open manual application registration")
+	}
+
+	model, _ = applicationUXModel(t)
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.screen != dashboardScreen {
+		t.Fatal("Esc did not return from Applications")
+	}
+}
+
+func TestDiscoveredApplicationDetailsAreReadOnly(t *testing.T) {
+	model, _ := applicationUXModel(t)
+	model.cursor = 1
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if model.screen != applicationDetailsScreen || model.appDetail.name != "Cursor" {
+		t.Fatalf("discovered details did not open: screen=%d detail=%q", model.screen, model.appDetail.name)
+	}
+	_, body, footer := model.viewApplicationDetails()
+	if footer != "Esc Back" || !strings.Contains(body, "xdg-desktop") || !strings.Contains(body, "linux") || !strings.Contains(body, "cannot be edited") {
+		t.Fatalf("discovered details are unclear: footer=%q body=%q", footer, body)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if model.screen != applicationDetailsScreen {
+		t.Fatal("E unexpectedly edited a discovered application")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.screen != applicationsScreen {
+		t.Fatal("Esc did not return from application details")
+	}
+}
+
+func TestApplicationsSearchHasExplicitFocusAndOwnsText(t *testing.T) {
+	model, _ := applicationUXModel(t)
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !model.search.Focused() {
+		t.Fatal("/ did not focus application search")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if model.search.Value() != "a d" {
+		t.Fatalf("focused search did not own text input: %q", model.search.Value())
+	}
+	_, _, footer := model.viewApplications()
+	if footer != "Type Search   ↑↓ Results   Enter Details   Esc Done" {
+		t.Fatalf("search footer=%q", footer)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.search.Focused() || model.search.Value() != "" || model.screen != applicationsScreen {
+		t.Fatal("first Esc did not clear and exit search")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.screen != dashboardScreen {
+		t.Fatal("second Esc did not leave Applications")
+	}
+}
+
+func TestApplicationsSearchResultsCanBeNavigatedAndOpened(t *testing.T) {
+	model, _ := applicationUXModel(t)
+	model.catalog.Applications = discovery.Normalize(append(model.catalog.Applications,
+		discovery.Application{Name: "Chrome", Target: "/usr/bin/chrome", Kind: discovery.KindExecutable, Source: "fixture", Platform: "linux"},
+	))
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if model.search.Focused() || model.cursor != 0 || model.search.Value() != "c" {
+		t.Fatalf("Down did not move focus to the first filtered result: focused=%v cursor=%d query=%q", model.search.Focused(), model.cursor, model.search.Value())
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if model.cursor != 1 {
+		t.Fatalf("Down did not navigate filtered results: cursor=%d", model.cursor)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if model.screen != applicationDetailsScreen || model.appDetail.name != "Cursor" {
+		t.Fatalf("Enter did not open the highlighted filtered result: screen=%d detail=%q", model.screen, model.appDetail.name)
+	}
+
+	model, _ = applicationUXModel(t)
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, character := range "cursor" {
+		model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{character}})
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if model.screen != applicationDetailsScreen || model.appDetail.name != "Cursor" {
+		t.Fatalf("Enter did not open the exact search result: screen=%d detail=%q", model.screen, model.appDetail.name)
+	}
+}
+
+func TestWorkspaceSelectionCancelAndContextualHints(t *testing.T) {
+	model, repo := applicationUXModel(t)
+	repo.cfg.Workspaces = []app.Workspace{{ID: "work", Name: "Work", Applications: []string{"manual"}}}
+	model.cfg = repo.cfg
+	model.openWorkspaceForm(&model.cfg.Workspaces[0])
+	_, _, footer := model.viewWorkspaceForm()
+	if footer != "↑↓ Navigate   Space Toggle   Enter Save   Esc Cancel" {
+		t.Fatalf("workspace selection footer=%q", footer)
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.screen != workspacesScreen || !reflect.DeepEqual(repo.cfg.Workspaces[0].Applications, []string{"manual"}) {
+		t.Fatal("Esc did not cancel workspace membership changes")
+	}
+
+	model.returnTo = applicationsScreen
+	if help := model.viewHelp(); !strings.Contains(help, "Enter Details") || !strings.Contains(help, "E Edit") {
+		t.Fatalf("applications help is not contextual: %q", help)
+	}
+	model.returnTo = workspaceFormScreen
+	model.wsForm.stage = 1
+	if help := model.viewHelp(); !strings.Contains(help, "Space Toggle") || !strings.Contains(help, "Enter Save") {
+		t.Fatalf("workspace help is not contextual: %q", help)
+	}
+	model.confirm = confirmState{kind: "application", name: "Alpha"}
+	_, _, confirmFooter := model.viewConfirm()
+	if confirmFooter != "Y Confirm   N Cancel" {
+		t.Fatalf("confirmation footer=%q", confirmFooter)
 	}
 }
 
@@ -273,6 +437,22 @@ func TestStandardTerminalUsesExactLogoAsset(t *testing.T) {
 	}
 }
 
+func TestSecondaryScreensUseExactLogoAssetWhenItFits(t *testing.T) {
+	model := newTestModel(t)
+	model.screen = applicationsScreen
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	viewLines := strings.Split(ansi.Strip(model.View()), "\n")
+	logoLines := strings.Split(launchassets.LaunchlineLogo(), "\n")
+	if len(viewLines) < len(logoLines) {
+		t.Fatalf("Applications does not contain the complete logo:\n%s", model.View())
+	}
+	for index, expected := range logoLines {
+		if actual := strings.TrimRight(viewLines[index], " "); actual != expected {
+			t.Fatalf("secondary logo line %d differs from assets/ascii/launchline.txt\ngot:  %q\nwant: %q", index+1, actual, expected)
+		}
+	}
+}
+
 func TestDashboardPromptHasResponsiveHorizontalRules(t *testing.T) {
 	for _, size := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 42, Height: 18}} {
 		model := newTestModel(t)
@@ -315,6 +495,9 @@ func TestEveryScreenFitsNarrowTerminal(t *testing.T) {
 	model.cfg.DefaultWorkspaceID = "w"
 	model.Update(tea.WindowSizeMsg{Width: 46, Height: 18})
 
+	model.appDetail = applicationChoice{name: "Cursor", configured: &model.cfg.Applications[0]}
+	model.screen = applicationDetailsScreen
+	applicationDetailsView := model.View()
 	model.openApplicationForm(&model.cfg.Applications[0])
 	applicationFormView := model.View()
 	model.openWorkspaceForm(&model.cfg.Workspaces[0])
@@ -336,6 +519,7 @@ func TestEveryScreenFitsNarrowTerminal(t *testing.T) {
 	views := map[string]func() string{
 		"dashboard":           func() string { model.screen = dashboardScreen; return model.View() },
 		"applications":        func() string { model.screen = applicationsScreen; return model.View() },
+		"application details": func() string { return applicationDetailsView },
 		"application form":    func() string { return applicationFormView },
 		"workspaces":          func() string { model.screen = workspacesScreen; return model.View() },
 		"workspace name":      func() string { return workspaceNameView },
@@ -349,6 +533,9 @@ func TestEveryScreenFitsNarrowTerminal(t *testing.T) {
 	for name, render := range views {
 		t.Run(name, func(t *testing.T) {
 			view := render()
+			if first := strings.TrimSpace(strings.Split(ansi.Strip(view), "\n")[0]); first != "LAUNCHLINE" {
+				t.Fatalf("top brand=%q, want LAUNCHLINE:\n%s", first, view)
+			}
 			for _, line := range strings.Split(view, "\n") {
 				if width := ansi.StringWidth(line); width > model.width {
 					t.Fatalf("line width %d exceeds terminal width %d: %q", width, model.width, line)

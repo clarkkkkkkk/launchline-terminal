@@ -24,6 +24,7 @@ type screen int
 const (
 	dashboardScreen screen = iota
 	applicationsScreen
+	applicationDetailsScreen
 	applicationFormScreen
 	workspacesScreen
 	workspaceFormScreen
@@ -77,6 +78,7 @@ type Model struct {
 	errMessage    string
 	notice        string
 	appForm       applicationForm
+	appDetail     applicationChoice
 	wsForm        workspaceForm
 	confirm       confirmState
 	launch        launchState
@@ -222,6 +224,8 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateDashboard(key)
 	case applicationsScreen:
 		return m.updateApplications(key)
+	case applicationDetailsScreen:
+		return m.updateApplicationDetails(key)
 	case applicationFormScreen:
 		return m.updateApplicationForm(key)
 	case workspacesScreen:
@@ -254,6 +258,8 @@ func (m *Model) View() string {
 		title, body, footer = m.viewDashboard()
 	case applicationsScreen:
 		title, body, footer = m.viewApplications()
+	case applicationDetailsScreen:
+		title, body, footer = m.viewApplicationDetails()
 	case applicationFormScreen:
 		title, body, footer = m.viewApplicationForm()
 	case workspacesScreen:
@@ -282,8 +288,8 @@ func (m *Model) frame(title, body, footer string) string {
 	sections := make([]string, 0, 8)
 	if m.screen == dashboardScreen {
 		sections = append(sections, m.brandHeader(contentWidth))
-	} else if label := m.screenLabel(); label != "" {
-		sections = append(sections, m.theme.Eyebrow.Render(label))
+	} else {
+		sections = append(sections, m.brandWordmark())
 	}
 	sections = append(sections, m.commandContext())
 	if title != "" {
@@ -374,7 +380,7 @@ func (m *Model) contentWidth() int {
 }
 
 func (m *Model) leftPadding() int {
-	if m.screen == dashboardScreen && m.shouldRenderFullLogo() {
+	if m.shouldRenderFullLogo() {
 		return 0
 	}
 	if m.width < 48 {
@@ -384,15 +390,23 @@ func (m *Model) leftPadding() int {
 }
 
 func (m *Model) brandHeader(width int) string {
+	return m.brandWordmark() + "\n\n" + m.theme.Muted.Render(truncate("Tips to get started: /help", width))
+}
+
+func (m *Model) brandWordmark() string {
 	wordmark := "LAUNCHLINE"
 	if m.shouldRenderFullLogo() {
 		wordmark = launchassets.LaunchlineLogo()
 	}
-	return m.theme.Logo.Render(wordmark) + "\n\n" + m.theme.Muted.Render(truncate("Tips to get started: /help", width))
+	return m.theme.Logo.Render(wordmark)
 }
 
 func (m *Model) shouldRenderFullLogo() bool {
-	if m.cfg.CompactLogo || m.screen != dashboardScreen || m.height < 20 {
+	minimumHeight := 20
+	if m.screen != dashboardScreen {
+		minimumHeight = 28
+	}
+	if m.cfg.CompactLogo || m.height < minimumHeight {
 		return false
 	}
 	return m.width >= lipgloss.Width(launchassets.LaunchlineLogo())
@@ -401,7 +415,7 @@ func (m *Model) shouldRenderFullLogo() bool {
 func (m *Model) commandContext() string {
 	command := "launchline"
 	switch m.screen {
-	case applicationsScreen:
+	case applicationsScreen, applicationDetailsScreen:
 		command = "launchline apps"
 	case applicationFormScreen:
 		if m.appForm.id == "" {
@@ -435,25 +449,6 @@ func (m *Model) commandContext() string {
 		}
 	}
 	return m.theme.Accent.Render(">") + " " + m.theme.Command.Render(command)
-}
-
-func (m *Model) screenLabel() string {
-	switch m.screen {
-	case applicationsScreen, applicationFormScreen:
-		return "APPLICATIONS"
-	case workspacesScreen, workspaceFormScreen:
-		return "WORKSPACES"
-	case launchSelectScreen, launchingScreen:
-		return "LAUNCH"
-	case settingsScreen:
-		return "SETTINGS"
-	case helpScreen:
-		return "HELP"
-	case confirmScreen:
-		return "CONFIRM"
-	default:
-		return ""
-	}
 }
 
 func (m *Model) statusLine(width int) string {

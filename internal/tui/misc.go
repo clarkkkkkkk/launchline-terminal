@@ -38,6 +38,31 @@ func (m *Model) viewSettings() (string, string, string) {
 }
 
 func (m *Model) viewHelp() string {
+	switch m.returnTo {
+	case applicationsScreen:
+		return strings.Join([]string{
+			"↑↓ Navigate",
+			"Enter Details",
+			"E Edit · D Delete · A Add",
+			"/ Search · Esc Back",
+		}, "\n")
+	case workspaceFormScreen:
+		if m.wsForm.stage == 1 {
+			return strings.Join([]string{
+				"↑↓ Navigate",
+				"Space Toggle",
+				"Enter Save",
+				"Esc Cancel",
+			}, "\n")
+		}
+	case applicationDetailsScreen:
+		if m.appDetail.configured != nil && m.appDetail.configured.Manual() {
+			return "E Edit\nEsc Back"
+		}
+		return "Esc Back\n\nDiscovered applications are read-only."
+	case confirmScreen:
+		return "Y Confirm\nN Cancel"
+	}
 	if m.layoutMode() == narrowLayout {
 		return strings.Join([]string{
 			"/start [workspace] — Launch",
@@ -59,7 +84,9 @@ func (m *Model) viewHelp() string {
 }
 
 func (m *Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch key.String() {
+	switch strings.ToLower(key.String()) {
+	case "?":
+		m.returnTo, m.screen = confirmScreen, helpScreen
 	case "y":
 		var err error
 		if m.confirm.kind == "application" {
@@ -87,8 +114,8 @@ func (m *Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) viewConfirm() (string, string, string) {
 	if m.confirm.kind == "application" {
 		body := m.description(fmt.Sprintf("Delete application %q?", m.confirm.name)) + "\n\nThis removes only the Launchline application entry and its workspace references.\n" + m.theme.Warning.Render("The installed program will not be changed.")
-		return "Confirm Removal — " + m.confirm.name, body, "Y Remove from Launchline   N Cancel"
+		return "Confirm Removal — " + m.confirm.name, body, "Y Confirm   N Cancel"
 	}
 	body := m.description(fmt.Sprintf("Delete workspace %q?", m.confirm.name)) + "\n\nThis removes only the Launchline workspace configuration.\n" + m.theme.Warning.Render("Registered and installed applications will not be changed.")
-	return "Confirm Deletion — " + m.confirm.name, body, "Y Delete Workspace   N Cancel"
+	return "Confirm Deletion — " + m.confirm.name, body, "Y Confirm   N Cancel"
 }
