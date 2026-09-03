@@ -199,7 +199,8 @@ func (m *Model) viewDashboard() (string, string, string) {
 			body.WriteString(m.theme.Muted.Render(fmt.Sprintf("… and %d more", remaining)) + "\n")
 		}
 	}
-	body.WriteString("\n" + m.prompt.View())
+	rule := m.theme.Divider.Render(strings.Repeat("─", max(1, m.contentWidth())))
+	body.WriteString("\n" + rule + "\n" + m.prompt.View() + "\n" + rule)
 	if len(m.suggestions) > 0 {
 		suggestions := m.suggestions
 		if len(suggestions) > 3 {

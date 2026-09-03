@@ -68,6 +68,21 @@ func (r Registry) Complete(value string, workspaceNames []string) (string, []str
 	words, _ := ParseWords(trimmedLeft)
 	if !strings.Contains(trimmedLeft, " ") {
 		prefix := strings.ToLower(trimmedLeft)
+		if !strings.HasPrefix(prefix, "/") && prefix != "?" {
+			prefix = "/" + prefix
+		}
+		// Prefer the plural management surface while completing the command
+		// name. The singular form remains available with an explicit argument.
+		if prefix == "/work" || prefix == "/workspace" {
+			return "/workspaces", []string{"/workspaces"}
+		}
+		if definition, ok := r.byName[prefix]; ok {
+			completed := definition.Name
+			if definition.MaxArgs > 0 {
+				completed += " "
+			}
+			return completed, []string{definition.Name}
+		}
 		var matches []string
 		seen := map[string]bool{}
 		for name, definition := range r.byName {
@@ -79,6 +94,9 @@ func (r Registry) Complete(value string, workspaceNames []string) (string, []str
 		sort.Strings(matches)
 		if len(matches) == 1 {
 			return matches[0], matches
+		}
+		if common := commonPrefix(matches); len(common) > len(prefix) {
+			return common, matches
 		}
 		return value, matches
 	}
@@ -107,6 +125,19 @@ func (r Registry) Complete(value string, workspaceNames []string) (string, []str
 		}
 	}
 	return value, nil
+}
+
+func commonPrefix(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	prefix := values[0]
+	for _, value := range values[1:] {
+		for !strings.HasPrefix(value, prefix) && prefix != "" {
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	return prefix
 }
 
 func (r Registry) Suggest(value string) string {

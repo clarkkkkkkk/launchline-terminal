@@ -41,6 +41,28 @@ func TestUnknownSuggestionAndCompletion(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCommandTabCompletion(t *testing.T) {
+	registry := NewRegistry()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "/workspace", want: "/workspaces"},
+		{input: "/work", want: "/workspaces"},
+		{input: "work", want: "/workspaces"},
+	}
+	for _, test := range tests {
+		completed, _ := registry.Complete(test.input, []string{"Development", "Work"})
+		if completed != test.want {
+			t.Fatalf("Complete(%q) = %q, want %q", test.input, completed, test.want)
+		}
+	}
+	completed, _ := registry.Complete("/workspace ", []string{"Development"})
+	if completed != "/workspace Development" {
+		t.Fatalf("workspace argument completion = %q", completed)
+	}
+}
+
 func TestHistoryPreservesDraft(t *testing.T) {
 	var history History
 	history.Add("/help")

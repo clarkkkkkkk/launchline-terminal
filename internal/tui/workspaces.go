@@ -75,14 +75,15 @@ func (m *Model) openWorkspaceForm(item *app.Workspace) {
 	name.PlaceholderStyle = m.theme.Muted
 	selected := map[string]bool{}
 	id := ""
+	stage := 0
 	if item != nil {
 		id = item.ID
+		stage = 1
 		name.SetValue(item.Name)
 		for _, appID := range item.Applications {
 			selected[appID] = true
 		}
 	}
-	name.Focus()
 	search := textinput.New()
 	search.Prompt = "> "
 	search.Placeholder = "Search applications"
@@ -91,7 +92,12 @@ func (m *Model) openWorkspaceForm(item *app.Workspace) {
 	search.Cursor.Style = m.theme.Accent
 	search.PromptStyle = m.theme.Accent
 	search.TextStyle = m.theme.Command
-	m.wsForm = workspaceForm{id: id, name: name, selected: selected, search: search}
+	if stage == 0 {
+		name.Focus()
+	} else {
+		search.Focus()
+	}
+	m.wsForm = workspaceForm{id: id, name: name, stage: stage, selected: selected, search: search}
 	m.screen = workspaceFormScreen
 }
 
@@ -123,14 +129,22 @@ func (m *Model) updateWorkspaceForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		form.cursor = moveCursor(form.cursor, len(items), -1)
 	case "down":
 		form.cursor = moveCursor(form.cursor, len(items), 1)
-	case "left", "shift+tab":
+	case "shift+tab":
 		form.search.Blur()
 		form.stage = 0
 		return m, form.name.Focus()
-	case " ":
+	case " ", "space":
 		if len(items) > 0 {
 			id := items[form.cursor].key
 			form.selected[id] = !form.selected[id]
+		}
+	case "right":
+		if len(items) > 0 {
+			form.selected[items[form.cursor].key] = true
+		}
+	case "left":
+		if len(items) > 0 {
+			form.selected[items[form.cursor].key] = false
 		}
 	case "enter":
 		selected := make([]string, 0, len(form.selected))
@@ -191,6 +205,7 @@ func (m *Model) viewWorkspaceForm() (string, string, string) {
 	items := m.applicationChoices(m.wsForm.search.Value())
 	var body strings.Builder
 	body.WriteString(m.description("Select discovered or manual applications for this workspace.") + "\n\n")
+	body.WriteString(m.theme.Muted.Render(fmt.Sprintf("%d selected", selectedApplicationCount(m.wsForm.selected))) + "\n")
 	body.WriteString(m.theme.Muted.Render("Search applications") + "\n" + m.wsForm.search.View() + "\n\n")
 	if len(items) == 0 {
 		body.WriteString(m.theme.Title.Render("No applications configured.") + "\n" + m.description("You can save an empty workspace and add applications later.") + "\n")
@@ -213,5 +228,15 @@ func (m *Model) viewWorkspaceForm() (string, string, string) {
 			body.WriteString(prefix + label + "\n")
 		}
 	}
-	return title, body.String(), "↑↓ Move   Space Toggle   Enter Save   ← Name   Esc Cancel"
+	return title, body.String(), "↑↓ Move   ← Unselect   → Select   Space Toggle   Enter Save   Shift+Tab Name"
+}
+
+func selectedApplicationCount(selected map[string]bool) int {
+	count := 0
+	for _, isSelected := range selected {
+		if isSelected {
+			count++
+		}
+	}
+	return count
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -94,6 +95,67 @@ func TestPromptCompletionHistoryAndQuotedStart(t *testing.T) {
 	}
 	if command := submit(model, `/start "Mobile Development"`); command == nil || model.screen != launchingScreen {
 		t.Fatalf("quoted start did not begin: screen=%d", model.screen)
+	}
+}
+
+func TestPromptWorkspaceCompletionAdvancesOnRepeatedTab(t *testing.T) {
+	model := newTestModel(t)
+	model.cfg.Workspaces = []app.Workspace{{ID: "w", Name: "Development"}}
+	model.prompt.SetValue("/work")
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.prompt.Value() != "/workspaces" {
+		t.Fatalf("first completion=%q", model.prompt.Value())
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.prompt.Value() != "/workspaces" {
+		t.Fatalf("second completion=%q", model.prompt.Value())
+	}
+	model.prompt.SetValue("/workspace ")
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.prompt.Value() != "/workspace Development" {
+		t.Fatalf("argument completion=%q", model.prompt.Value())
+	}
+}
+
+func TestExistingWorkspaceOpensOnApplicationSelectionAndTogglesMembership(t *testing.T) {
+	cfg := app.DefaultConfig()
+	cfg.Applications = []app.Application{
+		{ID: "alpha", Name: "Alpha", Path: "/alpha"},
+		{ID: "beta", Name: "Beta", Path: "/beta"},
+	}
+	cfg.Workspaces = []app.Workspace{{ID: "work", Name: "Work", Applications: []string{"alpha"}}}
+	cfg.DefaultWorkspaceID = "work"
+	repo := &tuiRepo{cfg: cfg}
+	service := app.NewService(repo)
+	model, err := New(service, app.NewLaunchService(service, noLaunch{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.openWorkspaceForm(&model.cfg.Workspaces[0])
+	if model.wsForm.stage != 1 {
+		t.Fatal("existing workspace did not open on its application checklist")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	if model.wsForm.selected["alpha"] {
+		t.Fatal("Space did not unselect the focused application")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if !model.wsForm.selected["alpha"] {
+		t.Fatal("Right did not select the focused application")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if !model.wsForm.selected["beta"] {
+		t.Fatal("Right did not select the second application")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if model.wsForm.selected["beta"] {
+		t.Fatal("Left did not unselect the focused application")
+	}
+	model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := repo.cfg.Workspaces[0].Applications; !reflect.DeepEqual(got, []string{"alpha", "beta"}) {
+		t.Fatalf("saved membership=%#v", got)
 	}
 }
 
@@ -207,6 +269,27 @@ func TestStandardTerminalUsesExactLogoAsset(t *testing.T) {
 	for index, expected := range logoLines {
 		if actual := strings.TrimRight(viewLines[index], " "); actual != expected {
 			t.Fatalf("logo line %d differs from assets/ascii/launchline.txt\ngot:  %q\nwant: %q", index+1, actual, expected)
+		}
+	}
+}
+
+func TestDashboardPromptHasResponsiveHorizontalRules(t *testing.T) {
+	for _, size := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 42, Height: 18}} {
+		model := newTestModel(t)
+		model.Update(size)
+		lines := strings.Split(ansi.Strip(model.View()), "\n")
+		rules := 0
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && strings.Trim(trimmed, "─") == "" {
+				rules++
+				if ansi.StringWidth(line) > size.Width {
+					t.Fatalf("rule width exceeds terminal: %q", line)
+				}
+			}
+		}
+		if rules != 2 {
+			t.Fatalf("expected two prompt rules at %dx%d, got %d:\n%s", size.Width, size.Height, rules, model.View())
 		}
 	}
 }

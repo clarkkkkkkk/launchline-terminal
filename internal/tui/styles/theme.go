@@ -16,6 +16,7 @@ type Theme struct {
 	Disabled lipgloss.Style
 	Hints    lipgloss.Style
 	Status   lipgloss.Style
+	Divider  lipgloss.Style
 }
 
 func New() Theme {
@@ -36,5 +37,6 @@ func New() Theme {
 		Disabled: lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#8C959F", Dark: "#6E7681"}),
 		Hints:    lipgloss.NewStyle().Foreground(muted),
 		Status:   lipgloss.NewStyle().Foreground(muted),
+		Divider:  lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#D0D1D4", Dark: "#45464D"}),
 	}
 }
