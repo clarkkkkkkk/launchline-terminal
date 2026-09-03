@@ -11,5 +11,5 @@ import (
 var launchlineLogo string
 
 func LaunchlineLogo() string {
-	return strings.TrimRight(launchlineLogo, "\r\n")
+	return strings.TrimRight(strings.ReplaceAll(launchlineLogo, "\r\n", "\n"), "\r\n")
 }
