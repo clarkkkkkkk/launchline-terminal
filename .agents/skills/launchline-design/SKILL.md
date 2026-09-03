@@ -86,7 +86,7 @@ Support three modes:
 - normal: full logo only when both width and height permit, standard content, and compact full status;
 - narrow or short: plain `LAUNCHLINE`, tighter section spacing, stacked or shortened copy, compact hints, and no horizontal overflow.
 
-The root hierarchy is: dominant brand, `Tips to get started: /help`, `> launchline`, `Workspace`, a short instruction, numbered main selection, quiet controls, and status. Main selection order is Start Workspace, Applications, Workspaces, Settings, Help.
+The v0.2 root hierarchy is: dominant brand, `Tips to get started: /help`, `> launchline`, the default-workspace summary, a real Launchline command prompt, quiet completion/history guidance, and status. Preserve the canonical large wordmark treatment; the prompt replaces the old numbered main menu as the primary interaction.
 
 Keep the content column bounded on wide terminals. The interface stays upper-left rather than centering vertically. The status line may sit at the terminal bottom, but do not fill the main area with panels merely to occupy space.
 
@@ -97,6 +97,10 @@ Show the real conceptual command for the current surface: `launchline apps`, `la
 Every screen ends with a terminal-like status line. Its left side shows `~` plus the active/default workspace or current workspace context. Its right side shows the Launchline build version and platform when space permits. Collapse the platform first, then the right side, on narrow terminals. Do not render the status as a bordered web navigation bar.
 
 ## Interaction model
+
+The root is slash-command-first. Its prompt accepts registered Launchline commands only; it is not a shell and must never forward arbitrary text to a process. `/help` and an exact `?` invocation expose the same command help. Tab performs deterministic command and workspace-name completion. Up/Down traverse in-memory session history only while the root prompt owns focus, and Esc clears the current draft.
+
+Use a hybrid command/session model: slash commands navigate to interactive lists, forms, confirmation screens, and launch progress when those surfaces are clearer than plain output. Returning with Esc restores the root prompt. `/applications` and `/apps` browse the cached discovered catalog, `/workspaces` manages groups, `/workspace <name>` focuses an editor, `/start [workspace]` launches through the shared service, `/add` opens the manual fallback, `/refresh` starts an asynchronous local rescan, and `/settings`, `/version`, `/clear`, and `/exit` behave as their names imply.
 
 Apply these keys consistently:
 
@@ -123,6 +127,10 @@ Forms must:
 - explain that argument quoting is parsing only, not shell evaluation.
 
 Workspace editing has a human-readable name stage and a checkable application list. Render selected and unselected state as `[✓]` and `[ ]`; Space toggles and Enter saves. An empty workspace is allowed and must be explained rather than looking broken.
+
+Application discovery is the default registration experience. Application lists search the already-normalized cache on each keystroke and distinguish discovered, manually registered, and unavailable selections with text or symbols as well as color. A refresh runs through Bubble Tea commands/messages, keeps the UI responsive, and reports new, unchanged, warning, and missing results without discarding cached entries after partial source failure. Manual executable registration remains available for custom and non-standard installations.
+
+The prompt and application-search inputs must shrink with the content column and never overflow narrow terminals. Ordinary character keys belong to the focused input. Completion suggestions are quiet and secondary; they must not visually compete with the wordmark, workspace state, or active focus marker.
 
 ## Launch progress
 

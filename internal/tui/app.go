@@ -14,6 +14,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	launchassets "github.com/launchline/launchline/assets"
 	"github.com/launchline/launchline/internal/app"
+	launchcommand "github.com/launchline/launchline/internal/command"
+	"github.com/launchline/launchline/internal/discovery"
 	"github.com/launchline/launchline/internal/tui/styles"
 )
 
@@ -44,6 +46,7 @@ type workspaceForm struct {
 	stage    int
 	cursor   int
 	selected map[string]bool
+	search   textinput.Model
 }
 
 type confirmState struct {
@@ -62,31 +65,48 @@ type launchState struct {
 }
 
 type Model struct {
-	config     *app.Service
-	launcher   *app.LaunchService
-	cfg        app.Config
-	screen     screen
-	returnTo   screen
-	cursor     int
-	width      int
-	height     int
-	version    string
-	errMessage string
-	notice     string
-	appForm    applicationForm
-	wsForm     workspaceForm
-	confirm    confirmState
-	launch     launchState
-	spinner    spinner.Model
-	cancel     context.CancelFunc
-	theme      styles.Theme
+	config        *app.Service
+	launcher      *app.LaunchService
+	cfg           app.Config
+	screen        screen
+	returnTo      screen
+	cursor        int
+	width         int
+	height        int
+	version       string
+	errMessage    string
+	notice        string
+	appForm       applicationForm
+	wsForm        workspaceForm
+	confirm       confirmState
+	launch        launchState
+	spinner       spinner.Model
+	cancel        context.CancelFunc
+	refreshCancel context.CancelFunc
+	theme         styles.Theme
+	discovery     *discovery.Service
+	catalog       discovery.Catalog
+	commands      launchcommand.Registry
+	history       launchcommand.History
+	prompt        textinput.Model
+	search        textinput.Model
+	suggestions   []string
+	refreshing    bool
 }
 
 func New(config *app.Service, launcher *app.LaunchService) (*Model, error) {
 	return newModel(config, launcher, "dev")
 }
 
+func NewWithDiscovery(config *app.Service, launcher *app.LaunchService, discoveryService *discovery.Service, version string) (*Model, error) {
+	return newModelWithDiscovery(config, launcher, discoveryService, version)
+}
+
 func newModel(config *app.Service, launcher *app.LaunchService, version string) (*Model, error) {
+	return newModelWithDiscovery(config, launcher, nil, version)
+}
+
+func newModelWithDiscovery(config *app.Service, launcher *app.LaunchService, discoveryService *discovery.Service, version string) (*Model, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -94,7 +114,31 @@ func newModel(config *app.Service, launcher *app.LaunchService, version string) 
 	spin := spinner.New()
 	spin.Spinner = spinner.MiniDot
 	spin.Style = styles.New().Accent
-	return &Model{config: config, launcher: launcher, cfg: cfg, width: 80, height: 24, version: version, theme: styles.New(), spinner: spin}, nil
+	prompt := textinput.New()
+	prompt.Prompt = "> "
+	prompt.CharLimit = 512
+	prompt.Width = 74
+	prompt.Cursor.Style = styles.New().Accent
+	prompt.PromptStyle = styles.New().Accent
+	prompt.TextStyle = styles.New().Command
+	prompt.Focus()
+	search := textinput.New()
+	search.Prompt = "> "
+	search.Placeholder = "Search applications"
+	search.CharLimit = 200
+	search.Width = 70
+	search.Cursor.Style = styles.New().Accent
+	search.PromptStyle = styles.New().Accent
+	search.TextStyle = styles.New().Command
+	model := &Model{config: config, launcher: launcher, discovery: discoveryService, cfg: cfg, catalog: discovery.EmptyCatalog(), width: 80, height: 24, version: version, theme: styles.New(), spinner: spin, commands: launchcommand.NewRegistry(), prompt: prompt, search: search}
+	if discoveryService != nil {
+		if catalog, loadErr := discoveryService.Load(); loadErr == nil {
+			model.catalog = catalog
+		} else {
+			model.notice = "Cached application catalog could not be read; /refresh will rebuild it."
+		}
+	}
+	return model, nil
 }
 
 func Run(config *app.Service, launcher *app.LaunchService, version string) error {
@@ -106,20 +150,45 @@ func Run(config *app.Service, launcher *app.LaunchService, version string) error
 	return err
 }
 
-func (m *Model) Init() tea.Cmd { return nil }
+func RunWithDiscovery(config *app.Service, launcher *app.LaunchService, discoveryService *discovery.Service, version string) error {
+	model, err := newModelWithDiscovery(config, launcher, discoveryService, version)
+	if err != nil {
+		return err
+	}
+	_, err = tea.NewProgram(model, tea.WithAltScreen()).Run()
+	return err
+}
+
+func (m *Model) Init() tea.Cmd {
+	if m.discovery != nil {
+		m.refreshing = true
+		return m.startDiscoveryRefresh()
+	}
+	return nil
+}
 
 func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		fieldWidth := max(8, m.contentWidth()-3)
+		m.prompt.Width = fieldWidth
+		m.search.Width = fieldWidth
+		m.wsForm.search.Width = fieldWidth
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			if m.cancel != nil {
 				m.cancel()
 			}
+			if m.refreshCancel != nil {
+				m.refreshCancel()
+			}
 			return m, tea.Quit
 		}
+	}
+	if msg, ok := message.(discoveryRefreshedMsg); ok {
+		return m.applyDiscoveryRefresh(msg)
 	}
 
 	if m.screen == launchingScreen {
@@ -131,9 +200,12 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == helpScreen && (key.String() == "esc" || key.String() == "enter" || key.String() == "?") {
 		m.screen, m.cursor = m.returnTo, 0
+		if m.screen == dashboardScreen {
+			return m, m.prompt.Focus()
+		}
 		return m, nil
 	}
-	if m.screen != applicationFormScreen && m.screen != workspaceFormScreen && m.screen != confirmScreen {
+	if m.screen != dashboardScreen && m.screen != applicationsScreen && m.screen != applicationFormScreen && m.screen != workspaceFormScreen && m.screen != confirmScreen {
 		switch key.String() {
 		case "?":
 			m.returnTo, m.screen = m.screen, helpScreen
@@ -396,6 +468,9 @@ func (m *Model) statusLine(width int) string {
 		workspace = m.launch.workspace.Name
 	}
 	left := "~ " + workspace
+	if m.refreshing {
+		left = "~ Applications · Refreshing..."
+	}
 	right := "Launchline " + m.version
 	if m.layoutMode() != narrowLayout {
 		right += " · " + runtime.GOOS + "/" + runtime.GOARCH
@@ -430,7 +505,11 @@ func (m *Model) menuItem(index int, label string, numbered bool) string {
 }
 
 func visibleRange(total, cursor, height int) (int, int) {
-	rows := max(3, height-13)
+	return visibleRangeRows(total, cursor, max(3, height-13))
+}
+
+func visibleRangeRows(total, cursor, rows int) (int, int) {
+	rows = max(1, rows)
 	if total <= rows {
 		return 0, total
 	}

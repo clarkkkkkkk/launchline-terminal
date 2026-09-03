@@ -38,11 +38,26 @@ func newWorkspaceCommand(deps Dependencies) *cobra.Command {
 	return command
 }
 
-func resolveAppReferences(cfg app.Config, references []string) ([]string, error) {
+func resolveAppReferences(deps Dependencies, cfg app.Config, references []string) ([]string, error) {
 	ids := make([]string, 0, len(references))
 	seen := map[string]bool{}
 	for _, reference := range references {
 		item, err := findApplication(cfg, strings.TrimSpace(reference))
+		if err != nil && deps.Discovery != nil {
+			catalog, catalogErr := deps.Discovery.Load()
+			if catalogErr != nil {
+				return nil, catalogErr
+			}
+			for _, discovered := range catalog.Applications {
+				if discovered.ID == strings.TrimSpace(reference) || equalName(discovered.Name, reference) {
+					item, err = deps.Config.LinkDiscoveredApplication(app.Application{Name: discovered.Name, Path: discovered.Target, Arguments: discovered.Arguments, Kind: discovered.Kind, DiscoveryID: discovered.ID, Source: discovered.Source})
+					if err == nil {
+						cfg.Applications = append(cfg.Applications, item)
+					}
+					break
+				}
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +87,7 @@ func newWorkspaceCreateCommand(deps Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ids, err := resolveAppReferences(cfg, applications)
+			ids, err := resolveAppReferences(deps, cfg, applications)
 			if err != nil {
 				return err
 			}
@@ -116,7 +131,7 @@ func newWorkspaceEditCommand(deps Dependencies) *cobra.Command {
 				workspace.Name, changed = name, true
 			}
 			if command.Flags().Changed("app") {
-				workspace.Applications, err = resolveAppReferences(cfg, applications)
+				workspace.Applications, err = resolveAppReferences(deps, cfg, applications)
 				if err != nil {
 					return err
 				}

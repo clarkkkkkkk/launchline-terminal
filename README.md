@@ -2,7 +2,7 @@
 
 **One command. Your entire workspace.**
 
-Launchline is an offline-first, cross-platform terminal utility for starting the applications you use together. Register applications once, group them into named workspaces, and launch the whole group from an interactive dashboard or one command.
+Launchline is an offline-first, cross-platform terminal utility for starting the applications you use together. It discovers the applications already installed on your computer, lets you group them into named workspaces, and launches the whole group from an interactive command session or one shell command.
 
 ```console
 launchline start development
@@ -12,7 +12,9 @@ Launchline is local, keyboard-first, account-free, and intentionally small. It h
 
 ## Features
 
-- Interactive Bubble Tea dashboard with responsive Launchline branding
+- Slash-command-first Bubble Tea session with responsive Launchline branding
+- Local installed-application discovery with a fast cached catalog
+- Application search, command completion, and in-memory command history
 - Application add, edit, inspect, and confirmed removal flows
 - Workspace create, rename, application selection, default selection, and confirmed deletion
 - Concurrent launches with independent per-application results
@@ -23,7 +25,13 @@ Launchline is local, keyboard-first, account-free, and intentionally small. It h
 
 ## Supported platforms
 
-Launchline builds for Windows, Linux, and macOS on amd64 and arm64. It starts executable targets directly. It also uses the platform's standard opener for supported non-executable targets: `open` for macOS application bundles and URLs, `xdg-open` for Linux desktop files and URLs, and the Windows URL handler for URLs.
+Launchline builds for Windows, Linux, and macOS on amd64 and arm64. Discovery uses normal, bounded operating-system sources rather than crawling entire disks:
+
+- Linux: XDG user/system desktop-entry directories, including configured `XDG_DATA_HOME` and `XDG_DATA_DIRS`, plus common Flatpak and Snap desktop export locations when present. Hidden, non-display, terminal-only, and invalid entries are filtered; desktop `Exec` placeholders are removed and arguments remain structured.
+- Windows: per-user and system Start Menu shortcuts plus registered App Paths. Launchline does not recursively scan the system drive.
+- macOS: `.app` bundles in `/Applications`, `~/Applications`, and `/System/Applications`, using bundle display metadata when available.
+
+Discovery is intentionally practical rather than exhaustive. Manual registration remains available for custom binaries and non-standard installations. Launchline starts executables directly and uses safe platform openers for application bundles, shortcuts, desktop targets, and URLs where appropriate.
 
 ## Install or build
 
@@ -39,13 +47,21 @@ Move the resulting binary to a directory on your `PATH`. Tagged releases are pre
 
 ## Quick start
 
-Open the interactive dashboard:
+Open the interactive command session. Launchline renders its cached catalog immediately and refreshes it in the background:
 
 ```console
 launchline
 ```
 
-Or configure Launchline directly:
+Inside Launchline, start with:
+
+```text
+> /applications
+> /workspaces
+> /start
+```
+
+Or configure Launchline directly with the traditional shell commands:
 
 ```console
 launchline add --name Cursor --path /usr/bin/cursor
@@ -71,6 +87,7 @@ launchline start                   Start the default workspace
 launchline start <workspace>       Start a workspace by name or ID
 launchline add [flags]             Register an application
 launchline apps                    List applications
+launchline refresh                 Refresh installed-application discovery
 launchline apps edit <app>         Edit an application
 launchline apps delete <app>       Remove an entry with --yes
 launchline workspace               List workspaces
@@ -86,9 +103,29 @@ launchline help                    Show command help
 
 Run `launchline <command> --help` for flags and examples.
 
-## Dashboard
+## Interactive commands
 
-The dashboard exposes Start Workspace, Applications, Workspaces, Settings, and Help. The main controls are:
+The root screen preserves Launchline's responsive wordmark and default-workspace summary, then gives focus to a real Launchline-only `>` prompt. It does not execute shell commands.
+
+| Command | Action |
+| --- | --- |
+| `/start [workspace]` | Start the default or named workspace |
+| `/applications`, `/apps` | Browse and search discovered applications |
+| `/workspaces` | Manage workspaces |
+| `/workspace <name>` | Open a workspace; quoted names are supported |
+| `/add` | Register a custom application manually |
+| `/refresh` | Refresh the local application catalog asynchronously |
+| `/settings` | Open settings |
+| `/help`, `?` | Show interactive command help |
+| `/version` | Show the current version |
+| `/clear` | Clear session messages |
+| `/exit` | Exit cleanly |
+
+Tab completes commands and matching workspace names. Up and Down navigate command history while the root prompt owns focus; history exists only for the current session. Unknown commands offer a close suggestion where possible.
+
+Interactive lists and forms remain available where they are more useful than text output. The Applications screen filters the cached catalog as you type. Workspace creation and editing select discovered and manual apps with checkboxes. A selected discovered app receives a stable configuration link; the rest of the catalog remains separate.
+
+The main controls in interactive screens are:
 
 | Key | Action |
 | --- | --- |
@@ -97,14 +134,13 @@ The dashboard exposes Start Workspace, Applications, Workspaces, Settings, and H
 | Enter | Open, continue, or save |
 | Space | Toggle an application in a workspace |
 | Esc | Cancel or go back |
-| Q | Quit outside text inputs |
 | `?` | Contextual help |
 
-The Applications screen adds, edits, and removes local registrations. The Workspaces screen creates groups, selects applications with checkboxes, and chooses exactly one default. Removal affects Launchline configuration only—it never uninstalls applications.
+The Applications screen also keeps manual add/edit/removal as a fallback. The Workspaces screen creates groups, selects applications with checkboxes, and chooses exactly one default. Removal affects Launchline configuration only—it never uninstalls applications.
 
 ## Configuration
 
-Launchline stores a single `config.json` under the operating system's user configuration directory, in a `launchline` folder. Typical locations are:
+Launchline stores `config.json` and a separate `catalog.json` under the operating system's user configuration directory, in a `launchline` folder. Typical configuration locations are:
 
 - Windows: `%AppData%\launchline\config.json`
 - Linux: `$XDG_CONFIG_HOME/launchline/config.json`, usually `~/.config/launchline/config.json`
@@ -112,7 +148,9 @@ Launchline stores a single `config.json` under the operating system's user confi
 
 Use `launchline config path` for the exact path on your computer.
 
-Writes use a same-directory temporary file and atomic replacement where the operating system permits. The schema is versioned and validated on every read and write. Launchline does not overwrite malformed configuration; it creates a timestamped `.corrupt-*` safety copy and reports how to find it.
+`config.json` contains user choices, manual apps, and stable links for discovered apps selected into workspaces. `catalog.json` is a rebuildable cache of machine discovery results. Both use same-directory temporary files and atomic replacement where the operating system permits. The configuration schema is versioned; v0.1 data migrates additively with IDs, default workspace, membership, paths, arguments, and preferences preserved. A malformed file receives a timestamped `.corrupt-*` safety copy instead of being silently overwritten.
+
+If an app selected in a workspace is no longer discovered, Launchline marks it unavailable rather than deleting it or its workspace reference. A partial source failure retains cached entries and reports a non-fatal warning.
 
 ## Architecture
 
@@ -121,9 +159,11 @@ Cobra CLI ─┐
            ├─> application services ─> launcher interface ─> OS process behavior
 Bubble TUI ┘             │
                          └─> validated JSON repository
+
+OS discovery ─> normalized catalog ─> workspace/application selection
 ```
 
-The CLI and TUI share all CRUD, resolution, and launch services. Platform process behavior is isolated in `internal/launcher`; the TUI never executes operating-system commands. Stable application IDs keep workspace references intact when names or paths change.
+The CLI and TUI share all CRUD, discovery, resolution, and launch services. Discovery and launching remain separate: platform scanners only produce normalized targets, while `internal/launcher` owns process behavior. The TUI never executes operating-system commands. Stable application IDs keep workspace references intact when names or paths change.
 
 ## Development
 
@@ -141,12 +181,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and the Launchline design contract in [.a
 
 ## Security behavior
 
-Launchline treats application paths and arguments as process arguments, not shell source. It does not concatenate commands, execute hooks, install programs, or accept arbitrary scripts. Configuration is created with user-only permissions where supported. Register only applications and targets you trust.
+Launchline treats discovered and manual targets and arguments as process arguments, not shell source. Linux desktop placeholders are normalized rather than passed through blindly. The interactive prompt recognizes only its internal command registry. Launchline does not concatenate commands, execute hooks, install programs, or accept arbitrary scripts.
 
-## MVP status
+Discovery happens entirely on the local computer. Installed-application names and metadata are never sent over the network; Launchline has no analytics, telemetry, accounts, cloud sync, or crash-reporting service.
 
-This repository implements the production-oriented MVP: manual registration, workspace management, a responsive TUI, direct CLI workflows, local persistence, and cross-platform launching.
+## v0.2.0 status
 
-Future possibilities—not implemented—may include optional application discovery, import/export, and additional package-manager distribution. Accounts, cloud sync, remote launching, telemetry, and arbitrary scripting are outside the product's current scope.
+This repository implements the usability-focused v0.2.0 direction: cached cross-platform application discovery, discovered-app workspace selection, a slash-command interactive session, manual fallback registration, direct Cobra workflows, local persistence, and cross-platform launching.
+
+No discovery strategy can identify every custom installation. Import/export and additional package-manager distribution remain possible future work. Accounts, cloud sync, remote launching, telemetry, and arbitrary scripting remain outside the product scope.
 
 No license has been selected yet. Choose one before public distribution.

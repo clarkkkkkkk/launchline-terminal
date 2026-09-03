@@ -76,6 +76,130 @@ func (s *Service) AddApplication(input Application) (Application, error) {
 	return input, nil
 }
 
+// LinkDiscoveredApplication adds or refreshes one catalog application in user
+// configuration. It deliberately stores only applications the user selects,
+// not the complete discovery catalog.
+func (s *Service) LinkDiscoveredApplication(input Application) (Application, error) {
+	if strings.TrimSpace(input.DiscoveryID) == "" {
+		return Application{}, errors.New("discovery identifier is required")
+	}
+	if err := validateApplication(input); err != nil {
+		return Application{}, err
+	}
+	cfg, err := s.repo.Load()
+	if err != nil {
+		return Application{}, err
+	}
+	for i, existing := range cfg.Applications {
+		if existing.DiscoveryID == input.DiscoveryID {
+			input.ID = existing.ID
+			input.Name = availableApplicationName(cfg, cleanName(input.Name), existing.ID)
+			input.Path = strings.TrimSpace(input.Path)
+			input.Arguments = append([]string(nil), input.Arguments...)
+			input.Unavailable = false
+			cfg.Applications[i] = input
+			if err := s.repo.Save(cfg); err != nil {
+				return Application{}, err
+			}
+			return input, nil
+		}
+	}
+	input.ID, err = newID("app")
+	if err != nil {
+		return Application{}, err
+	}
+	input.Name, input.Path = availableApplicationName(cfg, cleanName(input.Name), ""), strings.TrimSpace(input.Path)
+	input.Arguments = append([]string(nil), input.Arguments...)
+	cfg.Applications = append(cfg.Applications, input)
+	if err := s.repo.Save(cfg); err != nil {
+		return Application{}, err
+	}
+	return input, nil
+}
+
+func availableApplicationName(cfg Config, desired, excludeID string) string {
+	available := func(candidate string) bool {
+		for _, existing := range cfg.Applications {
+			if existing.ID != excludeID && sameName(existing.Name, candidate) {
+				return false
+			}
+		}
+		return true
+	}
+	if available(desired) {
+		return desired
+	}
+	base := desired + " (discovered)"
+	if available(base) {
+		return base
+	}
+	for number := 2; ; number++ {
+		candidate := fmt.Sprintf("%s (discovered %d)", desired, number)
+		if available(candidate) {
+			return candidate
+		}
+	}
+}
+
+// ReconcileDiscoveredApplications marks linked catalog entries unavailable
+// without deleting workspace references. Manual entries are never changed.
+func (s *Service) ReconcileDiscoveredApplications(available map[string]bool) error {
+	catalog := make(map[string]Application, len(available))
+	for id := range available {
+		catalog[id] = Application{DiscoveryID: id}
+	}
+	return s.ReconcileDiscoveredCatalog(catalog)
+}
+
+// ReconcileDiscoveredCatalog refreshes linked launch metadata and marks absent
+// entries unavailable in one atomic configuration update.
+func (s *Service) ReconcileDiscoveredCatalog(available map[string]Application) error {
+	cfg, err := s.repo.Load()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range cfg.Applications {
+		if cfg.Applications[i].DiscoveryID == "" {
+			continue
+		}
+		catalogItem, exists := available[cfg.Applications[i].DiscoveryID]
+		unavailable := !exists
+		if cfg.Applications[i].Unavailable != unavailable {
+			cfg.Applications[i].Unavailable = unavailable
+			changed = true
+		}
+		if exists && catalogItem.Path != "" {
+			catalogItem.ID = cfg.Applications[i].ID
+			catalogItem.DiscoveryID = cfg.Applications[i].DiscoveryID
+			catalogItem.Name = availableApplicationName(cfg, cleanName(catalogItem.Name), catalogItem.ID)
+			catalogItem.Path = strings.TrimSpace(catalogItem.Path)
+			catalogItem.Arguments = append([]string(nil), catalogItem.Arguments...)
+			catalogItem.Unavailable = false
+			if !sameApplication(cfg.Applications[i], catalogItem) {
+				cfg.Applications[i] = catalogItem
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.repo.Save(cfg)
+}
+
+func sameApplication(a, b Application) bool {
+	if a.ID != b.ID || a.Name != b.Name || a.Path != b.Path || a.Kind != b.Kind || a.DiscoveryID != b.DiscoveryID || a.Source != b.Source || a.Unavailable != b.Unavailable || len(a.Arguments) != len(b.Arguments) {
+		return false
+	}
+	for i := range a.Arguments {
+		if a.Arguments[i] != b.Arguments[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) UpdateApplication(id string, input Application) (Application, error) {
 	if err := validateApplication(input); err != nil {
 		return Application{}, err

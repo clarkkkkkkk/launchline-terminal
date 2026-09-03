@@ -40,35 +40,22 @@ func (m *Model) viewSettings() (string, string, string) {
 func (m *Model) viewHelp() string {
 	if m.layoutMode() == narrowLayout {
 		return strings.Join([]string{
-			m.description("Launchline is a local, keyboard-first workspace launcher."),
-			"",
-			"↑↓ Move · Enter Open/Save",
-			"←→ Change · Space Toggle",
-			"Esc Back · Q Quit · ? Help",
-			"",
-			"Apps  A Add · E Edit · D Delete",
-			"Workspaces  C Create · F Default",
+			"/start [workspace] — Launch",
+			"/applications · /workspaces",
+			"/add · /refresh · /settings",
+			"/version · /clear · /exit",
+			"/help or ? — All commands",
+			"↑↓ History · Tab Complete",
+			m.description("Only registered Launchline commands run."),
 		}, "\n")
 	}
-	return strings.Join([]string{
-		m.description("Launchline is a local, keyboard-first workspace launcher."),
-		"",
-		"↑ / ↓       Navigate lists",
-		"← / →       Change options or return to a form field",
-		"Enter       Open, confirm, or save",
-		"Space       Toggle application selection",
-		"Esc         Cancel or go back",
-		"Q           Quit outside text inputs",
-		"?           Open this contextual help",
-		"",
-		"Applications",
-		"A add · E edit · D delete",
-		"",
-		"Workspaces",
-		"C create · E edit · F make default · D delete",
-		"",
-		m.description("Paths and arguments are passed directly to the operating system. Launchline never evaluates them as shell code."),
-	}, "\n")
+	lines := []string{m.description("Slash commands drive the session. Lists and editors remain keyboard-first."), ""}
+	for _, definition := range m.commands.Definitions() {
+		usage := definition.Usage
+		lines = append(lines, fmt.Sprintf("%-25s %s", usage, definition.Description))
+	}
+	lines = append(lines, "", "? is the same as /help", "↑↓ History · Tab Complete · Esc Cancel", "", m.description("The prompt executes registered Launchline commands only. It never evaluates shell input."))
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) updateConfirm(key tea.KeyMsg) (tea.Model, tea.Cmd) {

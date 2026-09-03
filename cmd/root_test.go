@@ -10,6 +10,7 @@ import (
 
 	"github.com/launchline/launchline/internal/app"
 	"github.com/launchline/launchline/internal/config"
+	"github.com/launchline/launchline/internal/discovery"
 )
 
 type recordingLauncher struct {
@@ -98,5 +99,41 @@ func TestHelpVersionAndDashboardEntry(t *testing.T) {
 	}
 	if output, err := executeForTest(t, deps, "version"); err != nil || !strings.Contains(output, "launchline dev") {
 		t.Fatalf("version: %q %v", output, err)
+	}
+}
+
+func TestRefreshUsesSharedDiscoveryService(t *testing.T) {
+	deps, recorder := testDependencies(t)
+	deps.Discovery = discovery.NewService(
+		discovery.NewFileCatalogRepository(filepath.Join(t.TempDir(), "catalog.json")),
+		discovery.DiscovererFunc(func(context.Context) ([]discovery.Application, error) {
+			return []discovery.Application{{Name: "Cursor", Target: "/cursor", Kind: discovery.KindExecutable, Platform: "linux", Source: "fixture"}}, nil
+		}),
+	)
+	output, err := executeForTest(t, deps, "refresh")
+	if err != nil || !strings.Contains(output, "1 applications (1 new") {
+		t.Fatalf("refresh: %q %v", output, err)
+	}
+	catalog, err := deps.Discovery.Load()
+	if err != nil || len(catalog.Applications) != 1 {
+		t.Fatalf("catalog not persisted: %#v %v", catalog, err)
+	}
+	output, err = executeForTest(t, deps, "workspace", "create", "--name", "Development", "--app", "Cursor")
+	if err != nil || !strings.Contains(output, "with 1 applications") {
+		t.Fatalf("workspace from discovery: %q %v", output, err)
+	}
+	cfg, _ := deps.Config.Load()
+	if len(cfg.Applications) != 1 || cfg.Applications[0].DiscoveryID == "" || cfg.Workspaces[0].Applications[0] != cfg.Applications[0].ID {
+		t.Fatalf("discovery selection was not linked stably: %#v", cfg)
+	}
+	output, err = executeForTest(t, deps, "start")
+	if err != nil || !strings.Contains(output, "✓ Cursor") {
+		t.Fatalf("start discovered app: %q %v", output, err)
+	}
+	recorder.mu.Lock()
+	started := append([]app.Application(nil), recorder.started...)
+	recorder.mu.Unlock()
+	if len(started) != 1 || started[0].DiscoveryID == "" || started[0].Path != "/cursor" {
+		t.Fatalf("shared launch service did not receive discovered target: %#v", started)
 	}
 }

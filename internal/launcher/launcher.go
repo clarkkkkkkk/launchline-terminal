@@ -33,6 +33,9 @@ func NewForOS(goos string) *PlatformLauncher {
 }
 
 func (l *PlatformLauncher) Launch(ctx context.Context, application app.Application) error {
+	if application.Unavailable {
+		return fmt.Errorf("could not launch %s: application is not currently available; refresh discovery or edit the workspace", application.Name)
+	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("launch canceled: %w", err)
 	}
@@ -106,6 +109,12 @@ func buildCommand(goos string, application app.Application) (string, []string, b
 	}
 	switch goos {
 	case "windows":
+		if application.Kind == "shortcut" || strings.HasSuffix(strings.ToLower(target), ".lnk") {
+			if len(application.Arguments) > 0 {
+				return "", nil, false, errors.New("Windows shortcuts do not accept additional launch arguments")
+			}
+			return "explorer.exe", []string{target}, false, nil
+		}
 		if isURL(target) {
 			if len(application.Arguments) > 0 {
 				return "", nil, false, errors.New("URL targets on Windows do not accept launch arguments")

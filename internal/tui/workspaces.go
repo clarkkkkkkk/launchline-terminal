@@ -83,7 +83,15 @@ func (m *Model) openWorkspaceForm(item *app.Workspace) {
 		}
 	}
 	name.Focus()
-	m.wsForm = workspaceForm{id: id, name: name, selected: selected}
+	search := textinput.New()
+	search.Prompt = "> "
+	search.Placeholder = "Search applications"
+	search.CharLimit = 200
+	search.Width = max(12, min(70, m.contentWidth()-2))
+	search.Cursor.Style = m.theme.Accent
+	search.PromptStyle = m.theme.Accent
+	search.TextStyle = m.theme.Command
+	m.wsForm = workspaceForm{id: id, name: name, selected: selected, search: search}
 	m.screen = workspaceFormScreen
 }
 
@@ -101,35 +109,44 @@ func (m *Model) updateWorkspaceForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			form.name.Blur()
 			form.stage = 1
-			return m, nil
+			return m, form.search.Focus()
 		}
 		var command tea.Cmd
 		form.name, command = form.name.Update(key)
 		return m, command
 	}
-	items := sortedApplications(m.cfg.Applications)
+	items := m.applicationChoices(form.search.Value())
 	switch key.String() {
-	case "q":
-		return m, tea.Quit
 	case "?":
 		m.returnTo, m.screen = workspaceFormScreen, helpScreen
-	case "up", "k":
+	case "up":
 		form.cursor = moveCursor(form.cursor, len(items), -1)
-	case "down", "j":
+	case "down":
 		form.cursor = moveCursor(form.cursor, len(items), 1)
 	case "left", "shift+tab":
+		form.search.Blur()
 		form.stage = 0
 		return m, form.name.Focus()
 	case " ":
 		if len(items) > 0 {
-			id := items[form.cursor].ID
+			id := items[form.cursor].key
 			form.selected[id] = !form.selected[id]
 		}
 	case "enter":
 		selected := make([]string, 0, len(form.selected))
-		for _, item := range items {
-			if form.selected[item.ID] {
-				selected = append(selected, item.ID)
+		for _, item := range m.applicationChoices("") {
+			if !form.selected[item.key] {
+				continue
+			}
+			if item.configured != nil {
+				selected = append(selected, item.configured.ID)
+			} else if item.discovered != nil {
+				linked, err := m.config.LinkDiscoveredApplication(app.Application{Name: item.discovered.Name, Path: item.discovered.Target, Arguments: item.discovered.Arguments, Kind: item.discovered.Kind, DiscoveryID: item.discovered.ID, Source: item.discovered.Source})
+				if err != nil {
+					m.errMessage = err.Error()
+					return m, nil
+				}
+				selected = append(selected, linked.ID)
 			}
 		}
 		input := app.Workspace{Name: form.name.Value(), Applications: selected}
@@ -149,6 +166,15 @@ func (m *Model) updateWorkspaceForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.screen, m.cursor = workspacesScreen, 0
 		m.notice = "Workspace saved."
+		return m, nil
+	default:
+		var command tea.Cmd
+		form.search, command = form.search.Update(key)
+		filtered := m.applicationChoices(form.search.Value())
+		if form.cursor >= len(filtered) {
+			form.cursor = max(0, len(filtered)-1)
+		}
+		return m, command
 	}
 	return m, nil
 }
@@ -162,20 +188,24 @@ func (m *Model) viewWorkspaceForm() (string, string, string) {
 		body := m.description("Name this workspace, then choose the applications it should launch.") + "\n\n" + m.theme.Accent.Render("● ") + m.theme.Focus.Render("Workspace name") + "\n" + m.wsForm.name.View()
 		return title, body, "Enter/Tab Choose Applications   Esc Cancel"
 	}
-	items := sortedApplications(m.cfg.Applications)
+	items := m.applicationChoices(m.wsForm.search.Value())
 	var body strings.Builder
-	body.WriteString(m.description("Select the applications included in this workspace.") + "\n\n")
+	body.WriteString(m.description("Select discovered or manual applications for this workspace.") + "\n\n")
+	body.WriteString(m.theme.Muted.Render("Search applications") + "\n" + m.wsForm.search.View() + "\n\n")
 	if len(items) == 0 {
 		body.WriteString(m.theme.Title.Render("No applications configured.") + "\n" + m.description("You can save an empty workspace and add applications later.") + "\n")
 	} else {
-		start, end := visibleRange(len(items), m.wsForm.cursor, m.height)
+		start, end := visibleRangeRows(len(items), m.wsForm.cursor, m.height-18)
 		for i := start; i < end; i++ {
 			check := "[ ]"
-			if m.wsForm.selected[items[i].ID] {
+			if m.wsForm.selected[items[i].key] {
 				check = "[✓]"
 			}
+			if items[i].unavailable {
+				check = "[!]"
+			}
 			prefix := "  "
-			label := check + " " + items[i].Name
+			label := check + " " + items[i].name
 			if i == m.wsForm.cursor {
 				prefix = m.theme.Accent.Render("● ")
 				label = m.theme.Focus.Render(label)

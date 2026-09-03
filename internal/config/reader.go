@@ -58,6 +58,12 @@ func (r *FileRepository) Load() (app.Config, error) {
 	if err := ensureEOF(decoder); err != nil {
 		return app.Config{}, r.corrupt(data, err)
 	}
+	migrated := cfg.Version == 1
+	if migrated {
+		// v2 is additive. Existing IDs, workspace membership, default choice,
+		// paths, arguments, and compact-logo preference remain unchanged.
+		cfg.Version = app.CurrentSchemaVersion
+	}
 	if cfg.Applications == nil {
 		cfg.Applications = []app.Application{}
 	}
@@ -66,6 +72,11 @@ func (r *FileRepository) Load() (app.Config, error) {
 	}
 	if err := app.ValidateConfig(cfg); err != nil {
 		return app.Config{}, r.corrupt(data, err)
+	}
+	if migrated {
+		if err := r.Save(cfg); err != nil {
+			return app.Config{}, fmt.Errorf("migrate configuration from version 1: %w", err)
+		}
 	}
 	return cfg, nil
 }

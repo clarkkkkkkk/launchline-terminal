@@ -91,3 +91,24 @@ func TestLoadRecoversInterruptedWindowsStyleReplacement(t *testing.T) {
 		t.Fatalf("previous file still exists: %v", err)
 	}
 }
+
+func TestVersionOneMigrationPreservesIdentityAndMembership(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	legacy := `{
+  "version": 1,
+  "default_workspace_id": "ws_1",
+  "compact_logo": true,
+  "applications": [{"id":"app_1","name":"Editor","path":"/editor","arguments":["--new"]}],
+  "workspaces": [{"id":"ws_1","name":"Development","applications":["app_1"]}]
+}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := NewFileRepository(path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Version != app.CurrentSchemaVersion || cfg.DefaultWorkspaceID != "ws_1" || cfg.Applications[0].ID != "app_1" || cfg.Workspaces[0].Applications[0] != "app_1" || !cfg.CompactLogo {
+		t.Fatalf("migration changed legacy data: %#v", cfg)
+	}
+}

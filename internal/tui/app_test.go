@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	launchassets "github.com/launchline/launchline/assets"
 	"github.com/launchline/launchline/internal/app"
+	"github.com/launchline/launchline/internal/discovery"
 )
 
 type tuiRepo struct{ cfg app.Config }
@@ -29,6 +32,102 @@ func newTestModel(t *testing.T) *Model {
 		t.Fatal(err)
 	}
 	return model
+}
+
+func submit(model *Model, value string) tea.Cmd {
+	model.screen = dashboardScreen
+	model.prompt.SetValue(value)
+	_, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	return command
+}
+
+func TestSlashCommandsDriveHybridScreens(t *testing.T) {
+	model := newTestModel(t)
+	for input, want := range map[string]screen{
+		"/help":         helpScreen,
+		"?":             helpScreen,
+		"/applications": applicationsScreen,
+		"/apps":         applicationsScreen,
+		"/workspaces":   workspacesScreen,
+		"/settings":     settingsScreen,
+		"/add":          applicationFormScreen,
+	} {
+		submit(model, input)
+		if model.screen != want {
+			t.Fatalf("%s opened screen %d, want %d", input, model.screen, want)
+		}
+	}
+	submit(model, "/version")
+	if !strings.Contains(model.notice, "Launchline dev") {
+		t.Fatalf("version notice=%q", model.notice)
+	}
+	submit(model, "/applicatons")
+	if !strings.Contains(model.errMessage, "/applications") {
+		t.Fatalf("suggestion=%q", model.errMessage)
+	}
+	submit(model, "/clear")
+	if model.errMessage != "" || model.notice != "" {
+		t.Fatal("clear did not reset session messages")
+	}
+	if command := submit(model, "/exit"); command == nil {
+		t.Fatal("exit did not return a quit command")
+	}
+}
+
+func TestPromptCompletionHistoryAndQuotedStart(t *testing.T) {
+	model := newTestModel(t)
+	model.cfg.Workspaces = []app.Workspace{{ID: "w", Name: "Mobile Development"}}
+	model.prompt.SetValue("/app")
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if model.prompt.Value() != "/applications" {
+		t.Fatalf("completion=%q", model.prompt.Value())
+	}
+	submit(model, "/help")
+	model.screen = dashboardScreen
+	model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if model.prompt.Value() != "/help" {
+		t.Fatalf("history=%q", model.prompt.Value())
+	}
+	submit(model, `/workspace "Mobile Development"`)
+	if model.screen != workspaceFormScreen || model.wsForm.name.Value() != "Mobile Development" {
+		t.Fatalf("workspace command did not focus editor: screen=%d name=%q", model.screen, model.wsForm.name.Value())
+	}
+	if command := submit(model, `/start "Mobile Development"`); command == nil || model.screen != launchingScreen {
+		t.Fatalf("quoted start did not begin: screen=%d", model.screen)
+	}
+}
+
+func TestDiscoveryRefreshAndApplicationFiltering(t *testing.T) {
+	repo := &tuiRepo{cfg: app.DefaultConfig()}
+	service := app.NewService(repo)
+	discoveryService := discovery.NewService(
+		discovery.NewFileCatalogRepository(filepath.Join(t.TempDir(), "catalog.json")),
+		discovery.DiscovererFunc(func(context.Context) ([]discovery.Application, error) {
+			return []discovery.Application{{Name: "Cursor", Target: "/usr/bin/cursor", Kind: discovery.KindExecutable, Platform: "linux", Source: "fixture"}, {Name: "Cura", Target: "/usr/bin/cura", Kind: discovery.KindExecutable, Platform: "linux", Source: "fixture"}}, nil
+		}),
+	)
+	model, err := NewWithDiscovery(service, app.NewLaunchService(service, noLaunch{}), discoveryService, "v0.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := model.Init()
+	if command == nil || !model.refreshing {
+		t.Fatal("refresh did not start asynchronously")
+	}
+	message := command()
+	model.Update(message)
+	if model.refreshing || len(model.catalog.Applications) != 2 {
+		t.Fatalf("refresh state: %#v", model.catalog)
+	}
+	if command := submit(model, "/refresh"); command == nil || !model.refreshing {
+		t.Fatal("slash refresh did not start asynchronously")
+	}
+	submit(model, "/applications")
+	model.search.SetValue("curs")
+	choices := model.applicationChoices(model.search.Value())
+	if len(choices) != 1 || choices[0].name != "Cursor" {
+		t.Fatalf("filter=%#v", choices)
+	}
 }
 
 func TestDashboardUsesCompactBrandOnNarrowTerminal(t *testing.T) {
@@ -74,6 +173,26 @@ func TestDashboardResponsiveLayoutModes(t *testing.T) {
 				t.Fatalf("missing command/status context:\n%s", view)
 			}
 		})
+	}
+}
+
+func TestPopulatedDashboardAndCatalogStayWithinStandardTerminal(t *testing.T) {
+	model := newTestModel(t)
+	var applicationIDs []string
+	for i := 0; i < 42; i++ {
+		item := app.Application{ID: fmt.Sprintf("app_%d", i), Name: fmt.Sprintf("Application %02d", i), Path: fmt.Sprintf("/app/%d", i)}
+		model.cfg.Applications = append(model.cfg.Applications, item)
+		applicationIDs = append(applicationIDs, item.ID)
+	}
+	model.cfg.Workspaces = []app.Workspace{{ID: "work", Name: "Development", Applications: applicationIDs}}
+	model.cfg.DefaultWorkspaceID = "work"
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	for _, target := range []screen{dashboardScreen, applicationsScreen} {
+		model.screen = target
+		view := model.View()
+		if lines := len(strings.Split(view, "\n")); lines > model.height {
+			t.Fatalf("screen %d height %d exceeds %d:\n%s", target, lines, model.height, view)
+		}
 	}
 }
 

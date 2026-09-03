@@ -111,3 +111,54 @@ func TestArgumentsParsing(t *testing.T) {
 		t.Fatal("expected unclosed quote error")
 	}
 }
+
+func TestDiscoveredApplicationLinkAndReconcilePreserveManualAndWorkspace(t *testing.T) {
+	repo := &memoryRepo{cfg: DefaultConfig()}
+	service := NewService(repo)
+	manual, err := service.AddApplication(Application{Name: "Custom", Path: "/custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := service.LinkDiscoveredApplication(Application{Name: "Cursor", Path: "/cursor", DiscoveryID: "discovered_cursor", Source: "fixture", Kind: "executable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := service.CreateWorkspace(Workspace{Name: "Development", Applications: []string{manual.ID, discovered.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReconcileDiscoveredApplications(map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := service.Load()
+	if cfg.Applications[0].Unavailable || !cfg.Applications[1].Unavailable || !reflect.DeepEqual(cfg.Workspaces[0].Applications, workspace.Applications) {
+		t.Fatalf("reconcile damaged config: %#v", cfg)
+	}
+	if err := service.ReconcileDiscoveredCatalog(map[string]Application{"discovered_cursor": {Name: "Cursor", Path: "/updated/cursor", Arguments: []string{"--new"}, DiscoveryID: "discovered_cursor", Source: "updated", Kind: "executable"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = service.Load()
+	if cfg.Applications[1].Unavailable || cfg.Applications[1].Path != "/updated/cursor" || !reflect.DeepEqual(cfg.Applications[1].Arguments, []string{"--new"}) {
+		t.Fatalf("catalog metadata was not refreshed: %#v", cfg.Applications[1])
+	}
+	refreshed, err := service.LinkDiscoveredApplication(Application{Name: "Cursor", Path: "/new/cursor", DiscoveryID: "discovered_cursor", Source: "fixture", Kind: "executable"})
+	if err != nil || refreshed.ID != discovered.ID || refreshed.Unavailable {
+		t.Fatalf("relink did not preserve ID: %#v %v", refreshed, err)
+	}
+}
+
+func TestManualAndDiscoveredApplicationsWithSameDisplayNameCoexist(t *testing.T) {
+	repo := &memoryRepo{cfg: DefaultConfig()}
+	service := NewService(repo)
+	manual, err := service.AddApplication(Application{Name: "Cursor", Path: "/custom/cursor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := service.LinkDiscoveredApplication(Application{Name: "Cursor", Path: "/usr/bin/cursor", DiscoveryID: "cursor-system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manual.ID == discovered.ID || discovered.Name != "Cursor (discovered)" || len(repo.cfg.Applications) != 2 {
+		t.Fatalf("manual app was not preserved distinctly: %#v", repo.cfg.Applications)
+	}
+}

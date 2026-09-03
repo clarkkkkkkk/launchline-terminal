@@ -4,19 +4,22 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/launchline/launchline/internal/app"
 	"github.com/launchline/launchline/internal/config"
+	"github.com/launchline/launchline/internal/discovery"
 	platformlauncher "github.com/launchline/launchline/internal/launcher"
 	"github.com/launchline/launchline/internal/tui"
 	"github.com/spf13/cobra"
 )
 
 type Dependencies struct {
-	Config *app.Service
-	Launch *app.LaunchService
-	RunTUI func(*app.Service, *app.LaunchService) error
+	Config    *app.Service
+	Launch    *app.LaunchService
+	Discovery *discovery.Service
+	RunTUI    func(*app.Service, *app.LaunchService) error
 }
 
 func defaultDependencies() (Dependencies, error) {
@@ -26,9 +29,10 @@ func defaultDependencies() (Dependencies, error) {
 	}
 	service := app.NewService(repository)
 	launch := app.NewLaunchService(service, platformlauncher.New())
+	discoveryService := discovery.NewService(discovery.NewFileCatalogRepository(filepath.Join(filepath.Dir(repository.Path()), "catalog.json")), discovery.NewPlatformDiscoverer())
 	return Dependencies{Config: service, Launch: launch, RunTUI: func(config *app.Service, launcher *app.LaunchService) error {
-		return tui.Run(config, launcher, Version)
-	}}, nil
+		return tui.RunWithDiscovery(config, launcher, discoveryService, Version)
+	}, Discovery: discoveryService}, nil
 }
 
 func NewRootCommand(deps Dependencies, stdout, stderr io.Writer) *cobra.Command {
@@ -47,7 +51,7 @@ func NewRootCommand(deps Dependencies, stdout, stderr io.Writer) *cobra.Command 
 	root.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
 		return fmt.Errorf("%w\nRun %q for usage", err, command.CommandPath()+" --help")
 	})
-	root.AddCommand(newStartCommand(deps), newAddCommand(deps), newAppsCommand(deps), newWorkspaceCommand(deps), newConfigCommand(deps), newVersionCommand())
+	root.AddCommand(newStartCommand(deps), newAddCommand(deps), newAppsCommand(deps), newWorkspaceCommand(deps), newConfigCommand(deps), newRefreshCommand(deps), newVersionCommand())
 	return root
 }
 

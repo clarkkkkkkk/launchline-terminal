@@ -20,16 +20,31 @@ func newAppsCommand(deps Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(cfg.Applications) == 0 {
-				fmt.Fprintln(command.OutOrStdout(), "No applications yet.\n\nAdd one with `launchline add --name NAME --path PATH`.")
+			catalogCount := 0
+			if deps.Discovery != nil {
+				catalog, catalogErr := deps.Discovery.Load()
+				if catalogErr == nil {
+					catalogCount = len(catalog.Applications)
+					for _, item := range catalog.Applications {
+						fmt.Fprintf(command.OutOrStdout(), "%s\n  %s  [discovered: %s]\n", item.Name, item.Target, item.Source)
+					}
+				} else {
+					fmt.Fprintf(command.OutOrStdout(), "Application catalog warning: %v\n\n", catalogErr)
+				}
+			}
+			if len(cfg.Applications) == 0 && catalogCount == 0 {
+				fmt.Fprintln(command.OutOrStdout(), "No applications found.\n\nRun `launchline refresh`, or add a custom app with `launchline add --name NAME --path PATH`.")
 				return nil
 			}
 			for _, item := range cfg.Applications {
+				if item.DiscoveryID != "" {
+					continue
+				}
 				args := app.FormatArguments(item.Arguments)
 				if args != "" {
 					args = " " + args
 				}
-				fmt.Fprintf(command.OutOrStdout(), "%s\n  %s%s\n", item.Name, item.Path, args)
+				fmt.Fprintf(command.OutOrStdout(), "%s\n  %s%s  [manual]\n", item.Name, item.Path, args)
 			}
 			return nil
 		},

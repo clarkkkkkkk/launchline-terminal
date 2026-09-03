@@ -7,7 +7,7 @@ type Workspace struct {
 	Applications []string `json:"applications"`
 }
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 // Config is the complete persisted Launchline configuration.
 type Config struct {
