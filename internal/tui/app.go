@@ -177,6 +177,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.prompt.Width = fieldWidth
 		m.search.Width = fieldWidth
 		m.wsForm.search.Width = fieldWidth
+		for i := range m.appForm.fields {
+			m.appForm.fields[i].Width = max(8, min(70, m.contentWidth()-3))
+		}
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {

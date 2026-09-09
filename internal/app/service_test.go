@@ -162,3 +162,25 @@ func TestManualAndDiscoveredApplicationsWithSameDisplayNameCoexist(t *testing.T)
 		t.Fatalf("manual app was not preserved distinctly: %#v", repo.cfg.Applications)
 	}
 }
+
+func TestManualLaunchSettingsSurviveDiscoveryRefresh(t *testing.T) {
+	service := NewService(&memoryRepo{cfg: DefaultConfig()})
+	manual, err := service.AddApplication(Application{Name: "Custom", Path: "editor", Arguments: []string{".", "--flag"}, WorkingDirectory: "project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := service.LinkDiscoveredApplication(Application{Name: "Discovered", Path: "editor", DiscoveryID: "catalog_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovered.Arguments) != 0 || discovered.WorkingDirectory != "" {
+		t.Fatalf("discovery defaults: %#v", discovered)
+	}
+	if err := service.ReconcileDiscoveredCatalog(map[string]Application{"catalog_1": {Name: "Discovered", Path: "updated", Arguments: []string{"--native"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := service.Load()
+	if !reflect.DeepEqual(cfg.Applications[0], manual) || !reflect.DeepEqual(cfg.Applications[1].Arguments, []string{"--native"}) {
+		t.Fatalf("refresh: %#v", cfg)
+	}
+}

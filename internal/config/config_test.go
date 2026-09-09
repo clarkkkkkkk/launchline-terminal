@@ -2,8 +2,10 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,5 +112,70 @@ func TestVersionOneMigrationPreservesIdentityAndMembership(t *testing.T) {
 	}
 	if cfg.Version != app.CurrentSchemaVersion || cfg.DefaultWorkspaceID != "ws_1" || cfg.Applications[0].ID != "app_1" || cfg.Workspaces[0].Applications[0] != "app_1" || !cfg.CompactLogo {
 		t.Fatalf("migration changed legacy data: %#v", cfg)
+	}
+}
+
+func TestLaunchSettingsPersistenceAndLegacyDefaults(t *testing.T) {
+	for _, version := range []int{1, 2} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			original := fmt.Sprintf(`{"version":%d,"applications":[{"id":"a","name":"Old","path":"old"}],"workspaces":[{"id":"w","name":"Work","applications":["a"]}],"default_workspace_id":"w"}`, version)
+			if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			repo := NewFileRepository(path)
+			cfg, err := repo.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.Applications[0].Arguments) != 0 || cfg.Applications[0].WorkingDirectory != "" {
+				t.Fatalf("unsafe defaults: %#v", cfg)
+			}
+			cfg.Applications[0].Arguments = []string{".", "--profile", "Work Profile", "", `C:\Work\`}
+			cfg.Applications[0].WorkingDirectory = filepath.Join(t.TempDir(), "not-created")
+			if err := repo.Save(cfg); err != nil {
+				t.Fatal(err)
+			}
+			first, _ := os.ReadFile(path)
+			got, err := NewFileRepository(path).Load()
+			if err != nil || !reflect.DeepEqual(got, cfg) {
+				t.Fatalf("roundtrip: %#v, %v", got, err)
+			}
+			if err := repo.Save(got); err != nil {
+				t.Fatal(err)
+			}
+			second, _ := os.ReadFile(path)
+			if string(first) != string(second) {
+				t.Fatal("serialization changed on second save")
+			}
+			got.Applications[0].Arguments = nil
+			got.Applications[0].WorkingDirectory = ""
+			if err := repo.Save(got); err != nil {
+				t.Fatal(err)
+			}
+			cleared, err := repo.Load()
+			if err != nil || len(cleared.Applications[0].Arguments) != 0 || cleared.Applications[0].WorkingDirectory != "" || cleared.Workspaces[0].Applications[0] != "a" {
+				t.Fatalf("clear: %#v, %v", cleared, err)
+			}
+		})
+	}
+}
+
+func TestInvalidLaunchSettingsJSONPreservesConfig(t *testing.T) {
+	for _, field := range []string{`"arguments":"--flag"`, `"arguments":[42]`, `"working_directory":[]`} {
+		path := filepath.Join(t.TempDir(), "config.json")
+		original := `{"version":2,"applications":[{"id":"a","name":"App","path":"app",` + field + `}],"workspaces":[]}`
+		if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := NewFileRepository(path).Load()
+		var corrupt *CorruptError
+		if !errors.As(err, &corrupt) {
+			t.Fatalf("expected safe failure for %s: %v", field, err)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != original {
+			t.Fatal("original changed")
+		}
 	}
 }

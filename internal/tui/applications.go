@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/launchline/launchline/internal/app"
 	"github.com/launchline/launchline/internal/discovery"
 )
@@ -229,6 +230,7 @@ func (m *Model) viewApplicationDetails() (string, string, string) {
 	item := m.appDetail
 	target, kind, source, platformName, arguments := "", "executable", "Manual registration", runtime.GOOS, []string(nil)
 	status, registration := "Available", "Discovered"
+	workingDirectory := "Default"
 	editable := item.configured != nil && item.configured.Manual()
 	if item.discovered != nil {
 		target = item.discovered.Target
@@ -238,6 +240,9 @@ func (m *Model) viewApplicationDetails() (string, string, string) {
 		arguments = item.discovered.Arguments
 	}
 	if item.configured != nil {
+		if item.configured.WorkingDirectory != "" {
+			workingDirectory = item.configured.WorkingDirectory
+		}
 		if target == "" {
 			target = item.configured.Path
 			kind = item.configured.Kind
@@ -267,6 +272,7 @@ func (m *Model) viewApplicationDetails() (string, string, string) {
 		m.theme.Muted.Render("Status") + "        " + status,
 		m.theme.Muted.Render("Target") + "        " + truncate(target, max(12, m.contentWidth()-14)),
 		m.theme.Muted.Render("Arguments") + "     " + truncate(args, max(12, m.contentWidth()-14)),
+		m.theme.Muted.Render("Working directory") + "  " + workingDirectory,
 		m.theme.Muted.Render("Kind") + "          " + kind,
 		m.theme.Muted.Render("Source") + "        " + source,
 		m.theme.Muted.Render("Platform") + "      " + platformName,
@@ -275,19 +281,28 @@ func (m *Model) viewApplicationDetails() (string, string, string) {
 	if editable {
 		footer = "E Edit   Esc Back"
 	} else {
-		rows = append(rows, "", m.description("This application is managed by local discovery and cannot be edited here. Use /add to register an editable manual target."))
+		rows = append(rows, m.description("Discovery entries cannot be edited; /add creates a manual target."))
 	}
-	return "Application Details — " + item.name, strings.Join(rows, "\n"), footer
+	title := truncate("Application Details — "+item.name, m.contentWidth())
+	budget := m.applicationBodyHeight()
+	if len(rows) > budget {
+		rows = rows[:budget]
+	}
+	for i := range rows {
+		rows[i] = truncate(rows[i], m.contentWidth())
+	}
+	return title, strings.Join(rows, "\n"), footer
 }
 
 func (m *Model) openApplicationForm(item *app.Application) {
-	labels := []string{"Name", "Path", "Arguments"}
+	labels := []string{"Name", "Path", "Arguments", "Working directory"}
 	fields := make([]textinput.Model, len(labels))
 	for i, label := range labels {
 		field := textinput.New()
 		field.Prompt = ""
 		field.Placeholder = label
-		field.CharLimit = 2048
+		// Formatting can expand stored arguments; never truncate an edit draft.
+		field.CharLimit = 0
 		field.Width = max(12, min(70, m.contentWidth()-2))
 		field.Cursor.Style = m.theme.Accent
 		field.TextStyle = m.theme.Command
@@ -300,9 +315,11 @@ func (m *Model) openApplicationForm(item *app.Application) {
 		fields[0].SetValue(item.Name)
 		fields[1].SetValue(item.Path)
 		fields[2].SetValue(app.FormatArguments(item.Arguments))
+		fields[3].SetValue(item.WorkingDirectory)
 	}
 	fields[0].Focus()
 	m.appForm = applicationForm{id: id, fields: fields}
+	m.errMessage, m.notice = "", ""
 	m.screen = applicationFormScreen
 }
 
@@ -332,7 +349,7 @@ func (m *Model) updateApplicationForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.errMessage = err.Error()
 			return m, nil
 		}
-		input := app.Application{Name: form.fields[0].Value(), Path: form.fields[1].Value(), Arguments: arguments}
+		input := app.Application{Name: form.fields[0].Value(), Path: form.fields[1].Value(), Arguments: arguments, WorkingDirectory: form.fields[3].Value()}
 		if form.id == "" {
 			_, err = m.config.AddApplication(input)
 		} else {
@@ -347,6 +364,7 @@ func (m *Model) updateApplicationForm(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen, m.cursor = applicationsScreen, 0
+		m.errMessage = ""
 		m.notice = "Application saved."
 		m.search.Blur()
 		return m, nil
@@ -363,17 +381,48 @@ func (m *Model) viewApplicationForm() (string, string, string) {
 		title = "Application Editor — " + m.appForm.fields[0].Value()
 		description = "Update this manual application without changing its workspace identity."
 	}
-	labels := []string{"Name", "Executable / application path", "Arguments (optional; quotes supported, no shell evaluation)"}
+	labels := []string{"Name", "Executable / target", "Arguments (optional)", "Working directory (optional)"}
 	var body strings.Builder
-	body.WriteString(m.description(description) + "\n\n")
-	for i, field := range m.appForm.fields {
+	budget := m.applicationBodyHeight()
+	// Keep the focused field visible even with a diagnostic on a short screen.
+	count := min(len(labels), max(1, (budget-1)/2))
+	start, end := visibleRangeRows(len(labels), m.appForm.focus, count)
+	if budget >= count*2+3 {
+		body.WriteString(truncate(m.description(description), m.contentWidth()) + "\n\n")
+	}
+	body.WriteString(m.theme.Muted.Render(truncate("Quotes group arguments; no shell evaluation.", m.contentWidth())) + "\n")
+	for i := start; i < end; i++ {
 		label := labels[i]
 		if i == m.appForm.focus {
 			label = m.theme.Accent.Render("● ") + m.theme.Focus.Render(label)
 		} else {
 			label = "  " + label
 		}
-		body.WriteString(label + "\n" + field.View() + "\n\n")
+		field := m.appForm.fields[i]
+		field.Width = max(8, min(70, m.contentWidth()-3))
+		body.WriteString(truncate(label, m.contentWidth()) + "\n" + field.View() + "\n")
 	}
-	return title, strings.TrimSpace(body.String()), "Tab/↑↓ Next Field   Enter Continue/Save   Esc Cancel"
+	footer := "Tab/↑↓ Next Field   Enter Continue/Save   Esc Cancel"
+	if m.contentWidth() < 55 {
+		footer = "Tab Next · Enter Save · Esc Back"
+	}
+	return truncate(title, m.contentWidth()), strings.TrimSpace(body.String()), footer
+}
+
+// applicationBodyHeight reserves the actual frame rows for these denser
+// screens. Fields scroll locally; the global keyboard and layout stay intact.
+func (m *Model) applicationBodyHeight() int {
+	messages := 0
+	if m.errMessage != "" {
+		messages++
+	}
+	if m.notice != "" {
+		messages++
+	}
+	spacing := 0
+	if m.layoutMode() != narrowLayout {
+		spacing = 4 + messages
+	}
+	brandHeight := len(strings.Split(ansi.Strip(m.brandWordmark()), "\n"))
+	return max(3, m.height-brandHeight-4-messages-spacing)
 }

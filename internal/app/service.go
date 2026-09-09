@@ -189,6 +189,9 @@ func (s *Service) ReconcileDiscoveredCatalog(available map[string]Application) e
 }
 
 func sameApplication(a, b Application) bool {
+	if a.WorkingDirectory != b.WorkingDirectory {
+		return false
+	}
 	if a.ID != b.ID || a.Name != b.Name || a.Path != b.Path || a.Kind != b.Kind || a.DiscoveryID != b.DiscoveryID || a.Source != b.Source || a.Unavailable != b.Unavailable || len(a.Arguments) != len(b.Arguments) {
 		return false
 	}

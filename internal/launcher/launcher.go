@@ -14,7 +14,13 @@ import (
 	"github.com/launchline/launchline/internal/app"
 )
 
-type starterFunc func(context.Context, string, ...string) error
+type processCommand struct {
+	name string
+	args []string
+	dir  string
+}
+
+type starterFunc func(context.Context, processCommand) error
 
 // PlatformLauncher isolates operating-system process details from the domain
 // and UI layers.
@@ -43,6 +49,24 @@ func (l *PlatformLauncher) Launch(ctx context.Context, application app.Applicati
 	if err != nil {
 		return err
 	}
+	command := processCommand{name: name, args: args}
+	if application.WorkingDirectory != "" {
+		if !validateTarget {
+			return fmt.Errorf("could not launch %s: working directory is not supported for platform opener targets; register the executable path instead", application.Name)
+		}
+		directory, err := filepath.Abs(application.WorkingDirectory)
+		if err != nil {
+			return fmt.Errorf("could not launch %s: resolve working directory %q: %w", application.Name, application.WorkingDirectory, err)
+		}
+		info, err := l.stat(directory)
+		if err != nil {
+			return fmt.Errorf("could not launch %s: inspect working directory %q: %w", application.Name, application.WorkingDirectory, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("could not launch %s: working directory %q is not a directory", application.Name, application.WorkingDirectory)
+		}
+		command.dir = directory
+	}
 	if validateTarget {
 		if err := l.validateExecutable(application.Path); err != nil {
 			return fmt.Errorf("could not launch %s: %w", application.Name, err)
@@ -56,7 +80,22 @@ func (l *PlatformLauncher) Launch(ctx context.Context, application app.Applicati
 	if !validateTarget {
 		start = l.run
 	}
-	if err := start(ctx, name, args...); err != nil {
+	if command.dir != "" {
+		// Resolve the executable before changing the child's directory. A
+		// relative path (including a PATH result) belongs to Launchline's cwd.
+		resolved := name
+		if !filepath.IsAbs(name) && !strings.ContainsAny(name, `/\`) {
+			resolved, err = l.look(name)
+			if err != nil {
+				return fmt.Errorf("could not launch %s: resolve executable %q: %w", application.Name, name, err)
+			}
+		}
+		command.name, err = filepath.Abs(resolved)
+		if err != nil {
+			return fmt.Errorf("could not launch %s: resolve executable %q: %w", application.Name, name, err)
+		}
+	}
+	if err := start(ctx, command); err != nil {
 		return fmt.Errorf("could not launch %s using %q: %w", application.Name, name, err)
 	}
 	return nil
@@ -150,14 +189,17 @@ func isURL(value string) bool {
 	return err == nil && parsed.Scheme != "" && (parsed.Scheme == "http" || parsed.Scheme == "https" || parsed.Scheme == "file")
 }
 
-func startDetached(_ context.Context, name string, args ...string) error {
-	command := exec.Command(name, args...)
+func startDetached(_ context.Context, spec processCommand) error {
+	command := exec.Command(spec.name, spec.args...)
+	command.Dir = spec.dir
 	if err := command.Start(); err != nil {
 		return err
 	}
 	return command.Process.Release()
 }
 
-func runCommand(ctx context.Context, name string, args ...string) error {
-	return exec.CommandContext(ctx, name, args...).Run()
+func runCommand(ctx context.Context, spec processCommand) error {
+	command := exec.CommandContext(ctx, spec.name, spec.args...)
+	command.Dir = spec.dir
+	return command.Run()
 }

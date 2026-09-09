@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -135,5 +136,52 @@ func TestRefreshUsesSharedDiscoveryService(t *testing.T) {
 	recorder.mu.Unlock()
 	if len(started) != 1 || started[0].DiscoveryID == "" || started[0].Path != "/cursor" {
 		t.Fatalf("shared launch service did not receive discovered target: %#v", started)
+	}
+}
+
+func TestLaunchSettingsCLIEditAndWorkspace(t *testing.T) {
+	deps, recorder := testDependencies(t)
+	directory := t.TempDir()
+	_, err := executeForTest(t, deps, "add", "--name", "Editor", "--path", "editor", "--arg=.", "--arg=--profile", "--arg=Work Profile", "--working-directory", directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := deps.Config.Load()
+	_, err = executeForTest(t, deps, "workspace", "create", "--name", "Work", "--app", "Editor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTest(t, deps, "apps", "edit", "Editor", "--name", "Renamed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTest(t, deps, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder.mu.Lock()
+	launched := recorder.started[0]
+	recorder.mu.Unlock()
+	if launched.ID != before.Applications[0].ID || launched.WorkingDirectory != directory || !reflect.DeepEqual(launched.Arguments, []string{".", "--profile", "Work Profile"}) {
+		t.Fatalf("launched: %#v", launched)
+	}
+	if _, err := executeForTest(t, deps, "apps", "edit", "Renamed", "--clear-args", "--arg=x"); err == nil {
+		t.Fatal("accepted conflicting flags")
+	}
+	_, err = executeForTest(t, deps, "apps", "edit", "Renamed", "--clear-args", "--working-directory=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleared, _ := deps.Config.Load()
+	if len(cleared.Applications[0].Arguments) != 0 || cleared.Applications[0].WorkingDirectory != "" {
+		t.Fatalf("not cleared: %#v", cleared)
+	}
+	_, err = executeForTest(t, deps, "apps", "edit", "Renamed", "--arg=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, _ := deps.Config.Load()
+	if !reflect.DeepEqual(empty.Applications[0].Arguments, []string{""}) {
+		t.Fatalf("empty argument lost: %#v", empty)
 	}
 }

@@ -45,6 +45,9 @@ func newAppsCommand(deps Dependencies) *cobra.Command {
 					args = " " + args
 				}
 				fmt.Fprintf(command.OutOrStdout(), "%s\n  %s%s  [manual]\n", item.Name, item.Path, args)
+				if item.WorkingDirectory != "" {
+					fmt.Fprintf(command.OutOrStdout(), "  Working directory: %s\n", item.WorkingDirectory)
+				}
 			}
 			return nil
 		},
@@ -54,7 +57,8 @@ func newAppsCommand(deps Dependencies) *cobra.Command {
 }
 
 func newAppsEditCommand(deps Dependencies) *cobra.Command {
-	var name, path string
+	var name, path, workingDirectory string
+	var clearArguments bool
 	var arguments []string
 	command := &cobra.Command{
 		Use:   "edit <application>",
@@ -79,8 +83,14 @@ func newAppsEditCommand(deps Dependencies) *cobra.Command {
 			if command.Flags().Changed("arg") {
 				item.Arguments, changed = arguments, true
 			}
+			if clearArguments {
+				item.Arguments, changed = nil, true
+			}
+			if command.Flags().Changed("working-directory") {
+				item.WorkingDirectory, changed = workingDirectory, true
+			}
 			if !changed {
-				return errors.New("nothing to change; provide --name, --path, or --arg")
+				return errors.New("nothing to change; provide --name, --path, --arg, --clear-args, or --working-directory")
 			}
 			updated, err := deps.Config.UpdateApplication(item.ID, item)
 			if err != nil {
@@ -93,6 +103,9 @@ func newAppsEditCommand(deps Dependencies) *cobra.Command {
 	command.Flags().StringVarP(&name, "name", "n", "", "new display name")
 	command.Flags().StringVarP(&path, "path", "p", "", "new executable/application path")
 	command.Flags().StringArrayVarP(&arguments, "arg", "a", nil, "replacement launch argument; repeat for multiple")
+	command.Flags().BoolVar(&clearArguments, "clear-args", false, "remove all launch arguments")
+	command.Flags().StringVar(&workingDirectory, "working-directory", "", "replacement working directory; empty clears it")
+	command.MarkFlagsMutuallyExclusive("arg", "clear-args")
 	return command
 }
 

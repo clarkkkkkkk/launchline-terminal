@@ -10,7 +10,7 @@ import (
 )
 
 func newAddCommand(deps Dependencies) *cobra.Command {
-	var name, path string
+	var name, path, workingDirectory string
 	var arguments []string
 	command := &cobra.Command{
 		Use:   "add",
@@ -22,7 +22,7 @@ func newAddCommand(deps Dependencies) *cobra.Command {
 			if strings.TrimSpace(name) == "" || strings.TrimSpace(path) == "" {
 				return errors.New("both --name and --path are required; run `launchline add --help` for an example")
 			}
-			created, err := deps.Config.AddApplication(app.Application{Name: name, Path: path, Arguments: arguments})
+			created, err := deps.Config.AddApplication(app.Application{Name: name, Path: path, Arguments: arguments, WorkingDirectory: workingDirectory})
 			if err != nil {
 				return err
 			}
@@ -33,5 +33,6 @@ func newAddCommand(deps Dependencies) *cobra.Command {
 	command.Flags().StringVarP(&name, "name", "n", "", "display name (required)")
 	command.Flags().StringVarP(&path, "path", "p", "", "executable, application, or supported target path (required)")
 	command.Flags().StringArrayVarP(&arguments, "arg", "a", nil, "launch argument; repeat for multiple arguments")
+	command.Flags().StringVar(&workingDirectory, "working-directory", "", "working directory for direct executables (optional)")
 	return command
 }

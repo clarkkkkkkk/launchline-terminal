@@ -62,8 +62,9 @@ func ParseArguments(value string) ([]string, error) {
 func FormatArguments(args []string) string {
 	formatted := make([]string, len(args))
 	for i, arg := range args {
-		if arg == "" || strings.ContainsAny(arg, " \t\"'") {
-			formatted[i] = `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
+		if arg == "" || strings.ContainsAny(arg, `\"'`) || strings.ContainsFunc(arg, unicode.IsSpace) {
+			escaped := strings.ReplaceAll(arg, `\`, `\\`)
+			formatted[i] = `"` + strings.ReplaceAll(escaped, `"`, `\"`) + `"`
 		} else {
 			formatted[i] = arg
 		}

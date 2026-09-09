@@ -83,6 +83,25 @@ launchline add --name Chrome --path /path/to/chrome \
 
 Launchline passes those values directly to the process API. It does not evaluate shell syntax.
 
+Manual applications also support an optional working directory:
+
+```console
+launchline add --name "Cursor Project" --path /usr/bin/cursor \
+  --arg=. --arg=--classic --working-directory=/home/clark/projects/launchline
+launchline apps edit "Cursor Project" --arg=--profile --arg="Work Profile"
+launchline apps edit "Cursor Project" --clear-args --working-directory=""
+```
+
+In the TUI, use **A** to add or **E** to edit a manual application. Enter arguments as a line such as `. --classic` or `--profile "Work Profile"`; single and double quotes group values, and `""` supplies an empty argument. Backslashes escape quotes, whitespace, and other backslashes outside quotes, or double quotes and backslashes inside double quotes. Single-quoted values preserve backslashes literally. No variables, substitutions, or shell operators are evaluated. Clearing the Arguments field removes all arguments. The CLI accepts each repeated `--arg` value literally; `--arg=` passes one empty argument, while `--clear-args` removes all arguments and cannot be combined with `--arg`.
+
+Working directories apply to direct executables on Windows, Linux, and macOS. Leave the field empty for Launchline's normal current-directory behavior. Relative working directories and relative executable paths resolve against Launchline's current directory; neither `~` nor environment variables are expanded by Launchline. A missing or invalid directory fails that application's launch with a diagnostic while other workspace applications continue. Directory existence is checked when launching, so temporarily unavailable folders do not prevent configuration from loading.
+
+Platform openers cannot reliably set the application's working directory: macOS `.app` bundles, Windows shortcuts, and desktop-file or URL targets reject this option. Register the direct executable to use it. macOS bundles retain argument forwarding through `open --args`; existing argument restrictions for Windows shortcuts/URLs and Linux desktop-file/URL targets remain. Applications that reuse an already-running instance may handle arguments according to their own behavior.
+
+Application details display arguments and the working directory, or **None** and **Default** when unset. Discovered entries remain managed by discovery, including any existing desktop-entry arguments. Use `/add` with a distinct name to create a manual variant for custom settings. Settings belong to the application and apply in every workspace that references it.
+
+Configuration continues to store `path` and an `arguments` array, with an optional `working_directory` string. Existing version-1 and version-2 configurations load without these fields; application IDs and workspace membership remain intact. Older Launchline binaries that reject unknown JSON fields cannot read entries containing `working_directory` until that field is removed.
+
 ## Commands
 
 ```text
