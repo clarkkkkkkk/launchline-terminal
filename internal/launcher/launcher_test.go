@@ -201,23 +201,54 @@ func TestActualProcessArgumentsAndDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	relativeDirectory, err := filepath.Rel(cwd, directory)
+	// Windows CI keeps the checkout on D: and the Go test executable/temp
+	// directories on C:. Only the relative-path case needs a common volume;
+	// keep the absolute-path cases in the original checkout directory.
+	relativeBase, err := os.MkdirTemp(filepath.Dir(executable), "launchline-relative-*")
 	if err != nil {
 		t.Fatal(err)
 	}
-	relativeExecutable, err := filepath.Rel(cwd, executable)
+	t.Cleanup(func() {
+		// The detached helper can briefly hold its cwd open on Windows after
+		// writing the report. Allow it to exit before removing the fixture.
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			err := os.RemoveAll(relativeBase)
+			if err == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Error(err)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+	relativeDirectory := "project with spaces"
+	relativeTargetDirectory := filepath.Join(relativeBase, relativeDirectory)
+	if err := os.Mkdir(relativeTargetDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	relativeExecutable, err := filepath.Rel(relativeBase, executable)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct {
-		name, target, directory, wantDirectory string
-		args                                   []string
+		name, target, directory, wantDirectory, launchDirectory string
+		args                                                    []string
 	}{
-		{"default-no-args", executable, "", cwd, []string{}},
-		{"custom", executable, directory, directory, []string{".", "--classic", "Work Profile", "", `C:\Work\`, "&&", ";", "$(echo nope)"}},
-		{"relative", relativeExecutable, relativeDirectory, directory, []string{"--flag"}},
+		{"default-no-args", executable, "", cwd, "", []string{}},
+		{"custom", executable, directory, directory, "", []string{".", "--classic", "Work Profile", "", `C:\Work\`, "&&", ";", "$(echo nope)"}},
+		{"relative", relativeExecutable, relativeDirectory, relativeTargetDirectory, relativeBase, []string{"--flag"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.launchDirectory != "" {
+				t.Chdir(tt.launchDirectory)
+			}
+			launchDirectory, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
 			reportPath := filepath.Join(t.TempDir(), "report.json")
 			t.Setenv("LAUNCHLINE_TEST_PROCESS_REPORT", reportPath)
 			args := append([]string{"-test.run=^TestLaunchProcessHelper$", "--"}, tt.args...)
@@ -247,8 +278,8 @@ func TestActualProcessArgumentsAndDirectory(t *testing.T) {
 			if !os.SameFile(gotDir, wantDir) || !reflect.DeepEqual(report.Args, tt.args) {
 				t.Fatalf("received %#v; want directory %q args %#v", report, tt.wantDirectory, tt.args)
 			}
-			after, _ := os.Getwd()
-			if after != cwd {
+			after, err := os.Getwd()
+			if err != nil || after != launchDirectory {
 				t.Fatal("Launchline cwd changed")
 			}
 		})
