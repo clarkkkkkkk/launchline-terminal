@@ -73,7 +73,12 @@ func (s *LaunchService) Begin(ctx context.Context, reference string) (Workspace,
 		go func() {
 			defer wg.Done()
 			started := time.Now()
-			err := s.launcher.Launch(ctx, item)
+			var err error
+			if managed, ok := s.launcher.(WorkspaceLauncher); ok {
+				err = managed.LaunchInWorkspace(ctx, workspace.ID, item)
+			} else {
+				err = s.launcher.Launch(ctx, item)
+			}
 			results <- LaunchResult{Application: item, Err: err, Duration: time.Since(started)}
 		}()
 	}

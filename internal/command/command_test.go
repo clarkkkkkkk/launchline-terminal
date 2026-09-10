@@ -80,3 +80,18 @@ func TestHistoryPreservesDraft(t *testing.T) {
 		t.Fatalf("draft=%q", got)
 	}
 }
+
+func TestStopCommandAndCompletion(t *testing.T) {
+	registry := NewRegistry()
+	invocation, err := registry.Parse(`/stop "My Work"`)
+	if err != nil || invocation.Definition.Action != ActionStop || invocation.Arguments[0] != "My Work" {
+		t.Fatalf("invocation=%#v err=%v", invocation, err)
+	}
+	completed, _ := registry.Complete("/stop My", []string{"My Work"})
+	if completed != `/stop "My Work"` {
+		t.Fatalf("completion=%q", completed)
+	}
+	if _, err := registry.Parse("/stop one two"); err == nil {
+		t.Fatal("accepted extra arguments")
+	}
+}

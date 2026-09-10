@@ -135,6 +135,12 @@ func (m *Model) executePrompt() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openWorkspaceForm(&workspace)
+	case launchcommand.ActionStop:
+		reference := ""
+		if len(invocation.Arguments) == 1 {
+			reference = invocation.Arguments[0]
+		}
+		return m, m.beginStop(reference)
 	case launchcommand.ActionStart:
 		if len(invocation.Arguments) > 1 {
 			m.errMessage = "Usage: /start [workspace]"

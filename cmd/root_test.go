@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -183,5 +184,40 @@ func TestLaunchSettingsCLIEditAndWorkspace(t *testing.T) {
 	empty, _ := deps.Config.Load()
 	if !reflect.DeepEqual(empty.Applications[0].Arguments, []string{""}) {
 		t.Fatalf("empty argument lost: %#v", empty)
+	}
+}
+
+type stoppingLauncher struct{ recordingLauncher }
+
+func (r *stoppingLauncher) LaunchInWorkspace(ctx context.Context, _ string, a app.Application) error {
+	return r.Launch(ctx, a)
+}
+func (r *stoppingLauncher) StopInWorkspace(_ context.Context, _ string, a app.Application) (int, error) {
+	if a.Name == "Bad" {
+		return 0, fmt.Errorf("permission denied")
+	}
+	return 1, nil
+}
+
+func TestStopCommandReportsIndependentResults(t *testing.T) {
+	deps, _ := testDependencies(t)
+	deps.Launch = app.NewLaunchService(deps.Config, &stoppingLauncher{})
+	_, err := executeForTest(t, deps, "add", "--name", "Good", "--path", "good")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTest(t, deps, "add", "--name", "Bad", "--path", "bad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeForTest(t, deps, "workspace", "create", "--name", "My Work", "--app", "Good", "--app", "Bad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"stop"}, {"stop", "My Work"}} {
+		output, err := executeForTest(t, deps, args...)
+		if err == nil || !strings.Contains(output, "Good — close requested") || !strings.Contains(output, "Bad — permission denied") || !strings.Contains(output, "1 process close requests sent") {
+			t.Fatalf("output=%s error=%v", output, err)
+		}
 	}
 }

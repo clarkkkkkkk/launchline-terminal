@@ -30,6 +30,7 @@ const (
 	workspaceFormScreen
 	launchSelectScreen
 	launchingScreen
+	stoppingScreen
 	settingsScreen
 	helpScreen
 	confirmScreen
@@ -81,6 +82,7 @@ type Model struct {
 	appDetail     applicationChoice
 	wsForm        workspaceForm
 	confirm       confirmState
+	stop          stopState
 	launch        launchState
 	spinner       spinner.Model
 	cancel        context.CancelFunc
@@ -196,6 +198,9 @@ func (m *Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyDiscoveryRefresh(msg)
 	}
 
+	if m.screen == stoppingScreen {
+		return m.updateStopping(message)
+	}
 	if m.screen == launchingScreen {
 		return m.updateLaunching(message)
 	}
@@ -273,6 +278,8 @@ func (m *Model) View() string {
 		title, body, footer = m.viewLaunchSelect()
 	case launchingScreen:
 		title, body, footer = m.viewLaunching()
+	case stoppingScreen:
+		title, body, footer = m.viewStopping()
 	case settingsScreen:
 		title, body, footer = m.viewSettings()
 	case helpScreen:
@@ -435,6 +442,8 @@ func (m *Model) commandContext() string {
 		}
 	case launchSelectScreen:
 		command = "launchline start"
+	case stoppingScreen:
+		command = "launchline stop"
 	case launchingScreen:
 		command = "launchline start"
 		if m.launch.workspace.Name != "" {

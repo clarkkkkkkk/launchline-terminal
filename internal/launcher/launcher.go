@@ -15,9 +15,10 @@ import (
 )
 
 type processCommand struct {
-	name string
-	args []string
-	dir  string
+	name    string
+	args    []string
+	dir     string
+	started func(*os.Process) error
 }
 
 type starterFunc func(context.Context, processCommand) error
@@ -39,6 +40,10 @@ func NewForOS(goos string) *PlatformLauncher {
 }
 
 func (l *PlatformLauncher) Launch(ctx context.Context, application app.Application) error {
+	return l.launch(ctx, application, nil)
+}
+
+func (l *PlatformLauncher) launch(ctx context.Context, application app.Application, started func(*os.Process) error) error {
 	if application.Unavailable {
 		return fmt.Errorf("could not launch %s: application is not currently available; refresh discovery or edit the workspace", application.Name)
 	}
@@ -49,7 +54,7 @@ func (l *PlatformLauncher) Launch(ctx context.Context, application app.Applicati
 	if err != nil {
 		return err
 	}
-	command := processCommand{name: name, args: args}
+	command := processCommand{name: name, args: args, started: started}
 	if application.WorkingDirectory != "" {
 		if !validateTarget {
 			return fmt.Errorf("could not launch %s: working directory is not supported for platform opener targets; register the executable path instead", application.Name)
@@ -195,7 +200,12 @@ func startDetached(_ context.Context, spec processCommand) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
-	return command.Process.Release()
+	// Reap the child while Launchline remains open; CLI exit does not wait.
+	go func() { _ = command.Wait() }()
+	if spec.started != nil {
+		return spec.started(command.Process)
+	}
+	return nil
 }
 
 func runCommand(ctx context.Context, spec processCommand) error {

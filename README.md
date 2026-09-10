@@ -39,11 +39,25 @@ Discovery is intentionally practical rather than exhaustive. Manual registration
 
 ## Install or build
 
+Download a binary from the [latest published release](https://github.com/clarkkkkkkk/launchline-terminal/releases/latest). Linux binaries are available for [x64 / AMD64](https://github.com/clarkkkkkkk/launchline-terminal/releases/latest/download/launchline_linux_amd64) and [ARM64](https://github.com/clarkkkkkkk/launchline-terminal/releases/latest/download/launchline_linux_arm64). Choose the architecture reported by `uname -m`: `x86_64` uses AMD64; `aarch64` uses ARM64. Draft releases are not publicly downloadable.
+
+For Linux x64, download and install without sudo:
+
+```console
+curl -fL https://github.com/clarkkkkkkk/launchline-terminal/releases/latest/download/launchline_linux_amd64 -o launchline_linux_amd64
+mkdir -p ~/.local/bin
+install -m 755 launchline_linux_amd64 ~/.local/bin/launchline
+export PATH="$HOME/.local/bin:$PATH"
+launchline version
+```
+
+Stop if the download reports an HTTP or network error; do not install its output. For ARM64, replace `amd64` with `arm64`.
+
 Launchline requires Go 1.24 or newer to build from source.
 
 ```console
-git clone https://github.com/launchline/launchline.git
-cd launchline
+git clone https://github.com/clarkkkkkkk/launchline-terminal.git
+cd launchline-terminal
 go build -o launchline .
 ```
 
@@ -102,12 +116,21 @@ Application details display arguments and the working directory, or **None** and
 
 Configuration continues to store `path` and an `arguments` array, with an optional `working_directory` string. Existing version-1 and version-2 configurations load without these fields; application IDs and workspace membership remain intact. Older Launchline binaries that reject unknown JSON fields cannot read entries containing `working_directory` until that field is removed.
 
+## Stop a workspace
+
+Use `launchline stop Development` in your terminal, or `/stop Development` inside Launchline. Omit the name to use the default workspace. Save your work before stopping: Linux and macOS send SIGTERM, whose handling is application-specific; Windows sends WM_CLOSE so applications can show save dialogs. Launchline never escalates to a force kill. A successful result means a close request was sent, not that the application has exited.
+
+Only direct processes started through Launchline's workspace launcher are tracked. Local process records live in a `running` directory beside `config.json`, survive Launchline restarts, and are checked against OS process start identity before use. Stale records are removed without signaling a reused PID. Each launch belongs to its workspace; manually opened instances and processes launched from other workspaces are left alone.
+
+Platform openers (macOS bundles, Windows shortcuts, desktop files, and URLs), detached descendants, and applications that reuse an existing instance cannot be safely attributed by this mechanism. They remain open and may report “no tracked process running.” Register a direct executable when possible. Windows processes without a top-level window must be closed manually. Linux stop requires kernel 5.3 or newer for PID handles. Apps launched by older Launchline versions have no process records and are also left alone. These limits preserve existing launch behavior without guessing ownership by application name.
+
 ## Commands
 
 ```text
 launchline                         Open the interactive dashboard
 launchline start                   Start the default workspace
 launchline start <workspace>       Start a workspace by name or ID
+launchline stop [workspace]        Request closure of tracked workspace processes
 launchline add [flags]             Register an application
 launchline apps                    List applications
 launchline refresh                 Refresh installed-application discovery
@@ -133,6 +156,7 @@ The root screen preserves Launchline's responsive wordmark and default-workspace
 | Command | Action |
 | --- | --- |
 | `/start [workspace]` | Start the default or named workspace |
+| `/stop [workspace]` | Request closure of processes started in that workspace |
 | `/applications`, `/apps` | Browse and search discovered applications |
 | `/workspaces` | Manage workspaces |
 | `/workspace <name>` | Open a workspace; quoted names are supported |

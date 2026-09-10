@@ -9,6 +9,7 @@ const (
 	ActionWorkspaces   Action = "workspaces"
 	ActionWorkspace    Action = "workspace"
 	ActionStart        Action = "start"
+	ActionStop         Action = "stop"
 	ActionAdd          Action = "add"
 	ActionRefresh      Action = "refresh"
 	ActionSettings     Action = "settings"

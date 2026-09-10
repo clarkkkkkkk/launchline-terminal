@@ -28,7 +28,7 @@ func defaultDependencies() (Dependencies, error) {
 		return Dependencies{}, err
 	}
 	service := app.NewService(repository)
-	launch := app.NewLaunchService(service, platformlauncher.New())
+	launch := app.NewLaunchService(service, platformlauncher.NewManaged(filepath.Join(filepath.Dir(repository.Path()), "running")))
 	discoveryService := discovery.NewService(discovery.NewFileCatalogRepository(filepath.Join(filepath.Dir(repository.Path()), "catalog.json")), discovery.NewPlatformDiscoverer())
 	return Dependencies{Config: service, Launch: launch, RunTUI: func(config *app.Service, launcher *app.LaunchService) error {
 		return tui.RunWithDiscovery(config, launcher, discoveryService, Version)
@@ -51,7 +51,7 @@ func NewRootCommand(deps Dependencies, stdout, stderr io.Writer) *cobra.Command 
 	root.SetFlagErrorFunc(func(command *cobra.Command, err error) error {
 		return fmt.Errorf("%w\nRun %q for usage", err, command.CommandPath()+" --help")
 	})
-	root.AddCommand(newStartCommand(deps), newAddCommand(deps), newAppsCommand(deps), newWorkspaceCommand(deps), newConfigCommand(deps), newRefreshCommand(deps), newVersionCommand())
+	root.AddCommand(newStartCommand(deps), newStopCommand(deps), newAddCommand(deps), newAppsCommand(deps), newWorkspaceCommand(deps), newConfigCommand(deps), newRefreshCommand(deps), newVersionCommand())
 	return root
 }
 

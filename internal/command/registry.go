@@ -13,6 +13,7 @@ type Registry struct {
 
 func NewRegistry() Registry {
 	definitions := []Definition{
+		{Name: "/stop", Usage: "/stop [workspace]", Description: "Close processes started by Launchline", Action: ActionStop, MaxArgs: 1},
 		{Name: "/start", Usage: "/start [workspace]", Description: "Start the default or named workspace", Action: ActionStart, MaxArgs: 1},
 		{Name: "/applications", Aliases: []string{"/apps"}, Usage: "/applications", Description: "Browse discovered applications", Action: ActionApplications},
 		{Name: "/workspaces", Usage: "/workspaces", Description: "Manage workspaces", Action: ActionWorkspaces},
@@ -102,7 +103,7 @@ func (r Registry) Complete(value string, workspaceNames []string) (string, []str
 	}
 	if len(words) >= 1 {
 		definition, ok := r.byName[strings.ToLower(words[0])]
-		if ok && (definition.Action == ActionStart || definition.Action == ActionWorkspace) {
+		if ok && (definition.Action == ActionStart || definition.Action == ActionStop || definition.Action == ActionWorkspace) {
 			prefix := ""
 			if len(words) > 1 {
 				prefix = strings.ToLower(words[len(words)-1])

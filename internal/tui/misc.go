@@ -65,7 +65,7 @@ func (m *Model) viewHelp() string {
 	}
 	if m.layoutMode() == narrowLayout {
 		return strings.Join([]string{
-			"/start [workspace] — Launch",
+			"/start · /stop [workspace]",
 			"/applications · /workspaces",
 			"/add · /refresh · /settings",
 			"/version · /clear · /exit",
